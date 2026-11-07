@@ -46,20 +46,24 @@ def build_graph(osm_path: Path) -> sn.RoadGraph:
     Nodes are added in OSM id order so the graph comes out the same every time.
     Raw OSM tags are kept on each node and edge under ``tags["osm"]``.
     """
-    coords, node_tags, ways = {}, {}, []
+    coords, node_tags, split_tagged, ways = {}, {}, set(), []
     for el in json.loads(osm_path.read_text(encoding="utf-8"))["elements"]:
         tags = el.get("tags", {})
         if el["type"] == "node":
             coords[el["id"]] = (el["lat"], el["lon"])
             if tags:
                 node_tags[el["id"]] = tags
+                if tags.get("highway") in SPLIT_NODE_HIGHWAYS:
+                    split_tagged.add(el["id"])
         elif el["type"] == "way" and (klass := highway_class(tags.get("highway", ""))):
             ways.append((el["id"], el["nodes"], tags, klass))
     ways.sort(key=itemgetter(0))
 
     counts = Counter(ref for _, refs, _, _ in ways for ref in refs)
-    cuts = {ref for ref, n in counts.items()
-            if n > 1 or node_tags.get(ref, {}).get("highway") in SPLIT_NODE_HIGHWAYS}
+    if missing := counts.keys() - coords.keys():
+        raise ValueError(f"{osm_path} is missing {len(missing)} way nodes, e.g. {min(missing)}; "
+                         "fetch with Overpass recursion (>;) so every way's nodes are included")
+    cuts = {ref for ref, n in counts.items() if n > 1 or ref in split_tagged}
     cuts.update(end for _, refs, _, _ in ways for end in (refs[0], refs[-1]))
 
     graph = sn.RoadGraph(osm_path.stem)
