@@ -7,7 +7,8 @@ TfE's own API is closed and BODS has no Lothian coverage, so this is the
 live source; the DataShare 2014-15 traces are the fallback if this is
 refused, blocked or goes down.
 
-Run from data/, since data/ is the pytest/import root (see pytest.ini).
+Run as a script from data/. For how tests import this module, see the
+pytest.ini at the repo root.
 
 Usage:
     python3 collector.py test                    # one-shot sanity check

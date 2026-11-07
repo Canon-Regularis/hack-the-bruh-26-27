@@ -7,7 +7,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 PYTHON="${PYTHON:-python3}"
 
 echo "== (a) lint =="
-"$PYTHON" -m ruff check data
+"$PYTHON" -m ruff check data tests/data
 
 echo "== (b) tests =="
 "$PYTHON" -m pytest -q tests/data
