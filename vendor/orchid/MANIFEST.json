@@ -1,0 +1,295 @@
+{
+  "files": {
+    "algorithms/core/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/core/graph/geospatial_graphs/README.md": "ea7c819833545ca34798bb329aa9582ff4bc1ebb",
+    "algorithms/core/graph/geospatial_graphs/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/core/graph/geospatial_graphs/geospatial_graphs_template.py": "240c2ea992c864ab82675b7838ad78d5f388e526",
+    "algorithms/core/graph/shortest_paths/README.md": "2c5702b35194583849d02caf7d20bbb6e2f9b8e8",
+    "algorithms/core/graph/shortest_paths/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/core/graph/shortest_paths/shortest_paths_template.py": "3edf2ea7572b365c8b29a0e9333db9c19af8e70a",
+    "algorithms/core/ml/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/core/ml/data_splitting/README.md": "c2a97a0202dfe12b8af5a11ef83f1a5e13413b4b",
+    "algorithms/core/ml/data_splitting/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/core/ml/data_splitting/data_splitting_template.py": "bb39c5c8e431922ab39774643bc5b435a9753a3b",
+    "algorithms/core/ml/ensembles/README.md": "58e6abc28e07b2c8f4335a96b13b8033f9829251",
+    "algorithms/core/ml/ensembles/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/core/ml/ensembles/ensembles_template.py": "4a4d758fd2c32f18cc60fb8cb80e5bca84dbccdc",
+    "algorithms/core/optimisation/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/core/optimisation/multi_objective/README.md": "e3002d26381e5ffc745d7a7c30339c407fb486ed",
+    "algorithms/core/optimisation/multi_objective/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/core/optimisation/multi_objective/multi_objective_template.py": "55b464206dc4bccfc9f4162172612e8505fe9133",
+    "algorithms/core/optimisation/stochastic_optimisation/README.md": "9df8593c096b50d5ea39ffacd80a9f25710a7cfa",
+    "algorithms/core/optimisation/stochastic_optimisation/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/core/optimisation/stochastic_optimisation/stochastic_optimisation_template.py": "26903b38ca865970130b5127ac840cc2b5a408d4",
+    "algorithms/domains/urban/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/domains/urban/accessibility_equity/README.md": "55d60b596f3f98f6be245d49b182c25cbf4d7ff9",
+    "algorithms/domains/urban/accessibility_equity/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/domains/urban/accessibility_equity/accessibility_equity_template.py": "0b0efe3bc9e2d9e6d11952ed828bb42bb4c6dcfb",
+    "algorithms/domains/urban/emissions_environment/README.md": "a40276fff1c3e7d9eae0ba27126aab0f4f43d3ea",
+    "algorithms/domains/urban/emissions_environment/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/domains/urban/emissions_environment/emissions_environment_template.py": "ae215776e445bdbe9d735e0ac67d8416c45744c3",
+    "algorithms/domains/urban/pedestrian_flow/README.md": "84f5882bf2512d78a8ac9e2777836b3cde145f62",
+    "algorithms/domains/urban/pedestrian_flow/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/domains/urban/pedestrian_flow/pedestrian_flow_template.py": "7357887cb222cddee0ae804f30d70f965efb107d",
+    "algorithms/domains/urban/signal_control/README.md": "fc0a5c87ccf79f01aa4e75bfbcb94c40d5ec5677",
+    "algorithms/domains/urban/signal_control/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/domains/urban/signal_control/signal_control_template.py": "43bd51c048cc8a0632aea87fe377a038cb34bf81",
+    "algorithms/domains/urban/street_network/README.md": "69b6e536fce639d10768df244c29e459665f985d",
+    "algorithms/domains/urban/street_network/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/domains/urban/street_network/street_network_template.py": "adb4784de74a698d67fb460e11f5974d25f682bf",
+    "algorithms/domains/urban/traffic_assignment/README.md": "7aa85183e2e1e9ea6b754a79976fdc3f9b243145",
+    "algorithms/domains/urban/traffic_assignment/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/domains/urban/traffic_assignment/traffic_assignment_template.py": "f67872ddd0a75911c4b01e7b7e086eb7869a81e7",
+    "algorithms/domains/urban/traffic_flow/README.md": "3a5730565085e4af627bf5ed2b0ddf371bb17019",
+    "algorithms/domains/urban/traffic_flow/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/domains/urban/traffic_flow/traffic_flow_template.py": "64a587703fd10ac2dbd9a7eec226ffd6e94cd979",
+    "algorithms/domains/urban/travel_demand/README.md": "4c89bdef337f13d92db731ef2a8567edd0b10a4d",
+    "algorithms/domains/urban/travel_demand/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/domains/urban/travel_demand/travel_demand_template.py": "52118f1f1178943ba57a6967e4d24f3de3f0f2a8"
+  },
+  "files_per_module": [
+    "__init__.py",
+    "README.md",
+    "{name}_template.py"
+  ],
+  "generated_by": "scripts/sync_orchid.py -- do not edit; change the lists in that script and re-run it",
+  "held": [
+    {
+      "name": "probabilistic",
+      "optional_import_skipped_by": [
+        "emissions_environment",
+        "travel_demand"
+      ],
+      "path": "algorithms/core/probabilistic",
+      "reason": "held: documented, unfixed erf defect (URBAN_HANDOVER.md s5); emissions_environment and travel_demand fall back to their own stdlib code"
+    },
+    {
+      "name": "green_infrastructure",
+      "optional_import_skipped_by": [],
+      "path": "algorithms/domains/urban/green_infrastructure",
+      "reason": "held: green_min_cut_tree's adapter assumes parent < child, but core gomory_hu_tree (fixed in 07a4271) can return parent > child, so .parent/.cut_value are wrong whenever core network_optimisation is importable; the plan does not use green_infrastructure"
+    },
+    {
+      "name": "network_design",
+      "optional_import_skipped_by": [],
+      "path": "algorithms/domains/urban/network_design",
+      "reason": "pending: not converged, bug-hunt round 3 still found 4 template bugs (URBAN_PICKUP.md)"
+    },
+    {
+      "name": "policy_compiler",
+      "optional_import_skipped_by": [],
+      "path": "algorithms/domains/urban/policy_compiler",
+      "reason": "pending: parser rewritten, one more confirmation bug-hunt round advised (URBAN_PICKUP.md)"
+    },
+    {
+      "name": "public_voice",
+      "optional_import_skipped_by": [],
+      "path": "algorithms/domains/urban/public_voice",
+      "reason": "pending: not converged, bug-hunt round 5 still found 5 template bugs (URBAN_PICKUP.md)"
+    },
+    {
+      "name": "resilience",
+      "optional_import_skipped_by": [],
+      "path": "algorithms/domains/urban/resilience",
+      "reason": "pending: not converged, bug-hunt round 7 still found 4 template bugs (URBAN_PICKUP.md)"
+    }
+  ],
+  "modules": [
+    {
+      "import": "algorithms.core.graph.geospatial_graphs.geospatial_graphs_template",
+      "name": "geospatial_graphs",
+      "path": "algorithms/core/graph/geospatial_graphs",
+      "reason": "optional core import of vendored modules",
+      "required_by": [
+        "accessibility_equity",
+        "street_network"
+      ],
+      "requires": [],
+      "role": "dependency"
+    },
+    {
+      "import": "algorithms.core.graph.shortest_paths.shortest_paths_template",
+      "name": "shortest_paths",
+      "path": "algorithms/core/graph/shortest_paths",
+      "reason": "optional core import of vendored modules",
+      "required_by": [
+        "accessibility_equity"
+      ],
+      "requires": [],
+      "role": "dependency"
+    },
+    {
+      "import": "algorithms.core.ml.data_splitting.data_splitting_template",
+      "name": "data_splitting",
+      "path": "algorithms/core/ml/data_splitting",
+      "reason": "plan s3: GroupKFold, TimeSeriesSplit",
+      "required_by": [],
+      "requires": [],
+      "role": "core"
+    },
+    {
+      "import": "algorithms.core.ml.ensembles.ensembles_template",
+      "name": "ensembles",
+      "path": "algorithms/core/ml/ensembles",
+      "reason": "plan s3: GradientBoostingRegressor fallback (no quantile loss)",
+      "required_by": [],
+      "requires": [],
+      "role": "core"
+    },
+    {
+      "import": "algorithms.core.optimisation.multi_objective.multi_objective_template",
+      "name": "multi_objective",
+      "path": "algorithms/core/optimisation/multi_objective",
+      "reason": "plan s4: hypervolume, knee_point, find_pareto_front",
+      "required_by": [],
+      "requires": [],
+      "role": "core"
+    },
+    {
+      "import": "algorithms.core.optimisation.stochastic_optimisation.stochastic_optimisation_template",
+      "name": "stochastic_optimisation",
+      "path": "algorithms/core/optimisation/stochastic_optimisation",
+      "reason": "plan s4: scenario_reduction, conditional_value_at_risk",
+      "required_by": [
+        "travel_demand"
+      ],
+      "requires": [],
+      "role": "core"
+    },
+    {
+      "import": "algorithms.domains.urban.accessibility_equity.accessibility_equity_template",
+      "name": "accessibility_equity",
+      "path": "algorithms/domains/urban/accessibility_equity",
+      "reason": "hardened; not called by the plan",
+      "required_by": [],
+      "requires": [
+        "geospatial_graphs",
+        "shortest_paths"
+      ],
+      "role": "urban"
+    },
+    {
+      "import": "algorithms.domains.urban.emissions_environment.emissions_environment_template",
+      "name": "emissions_environment",
+      "path": "algorithms/domains/urban/emissions_environment",
+      "reason": "plan s0: display-only emissions layer",
+      "required_by": [],
+      "requires": [],
+      "role": "urban"
+    },
+    {
+      "import": "algorithms.domains.urban.pedestrian_flow.pedestrian_flow_template",
+      "name": "pedestrian_flow",
+      "path": "algorithms/domains/urban/pedestrian_flow",
+      "reason": "plan s2: crossing_delay, fruin_los",
+      "required_by": [],
+      "requires": [],
+      "role": "urban"
+    },
+    {
+      "import": "algorithms.domains.urban.signal_control.signal_control_template",
+      "name": "signal_control",
+      "path": "algorithms/domains/urban/signal_control",
+      "reason": "hardened; not called by the plan",
+      "required_by": [],
+      "requires": [],
+      "role": "urban"
+    },
+    {
+      "import": "algorithms.domains.urban.street_network.street_network_template",
+      "name": "street_network",
+      "path": "algorithms/domains/urban/street_network",
+      "reason": "plan s2: RoadGraph, HIGHWAY_DEFAULTS, clean_network, EdgeIndex, map_match, snap_point, to_geojson",
+      "required_by": [],
+      "requires": [
+        "geospatial_graphs"
+      ],
+      "role": "urban"
+    },
+    {
+      "import": "algorithms.domains.urban.traffic_assignment.traffic_assignment_template",
+      "name": "traffic_assignment",
+      "path": "algorithms/domains/urban/traffic_assignment",
+      "reason": "plan s2: user_equilibrium, detect_braess (suite pins Braess 83/498 -> 92/552)",
+      "required_by": [],
+      "requires": [],
+      "role": "urban"
+    },
+    {
+      "import": "algorithms.domains.urban.traffic_flow.traffic_flow_template",
+      "name": "traffic_flow",
+      "path": "algorithms/domains/urban/traffic_flow",
+      "reason": "hardened; not called by the plan",
+      "required_by": [],
+      "requires": [],
+      "role": "urban"
+    },
+    {
+      "import": "algorithms.domains.urban.travel_demand.travel_demand_template",
+      "name": "travel_demand",
+      "path": "algorithms/domains/urban/travel_demand",
+      "reason": "plan s2: gravity_model, gls_matrix_estimation",
+      "required_by": [],
+      "requires": [
+        "stochastic_optimisation"
+      ],
+      "role": "urban"
+    }
+  ],
+  "not_built": [
+    {
+      "name": "urban_optimisation",
+      "path": "algorithms/domains/urban/urban_optimisation",
+      "reason": "not built in ORCHID yet; plan v2 s0 replaces urban_optimisation and mosaic_pipeline with team glue"
+    },
+    {
+      "name": "mosaic_pipeline",
+      "path": "algorithms/domains/urban/mosaic_pipeline",
+      "reason": "not built in ORCHID yet; plan v2 s0 replaces urban_optimisation and mosaic_pipeline with team glue"
+    },
+    {
+      "name": "transit",
+      "path": "algorithms/domains/urban/transit",
+      "reason": "not built in ORCHID yet; plan v2 s0 replaces urban_optimisation and mosaic_pipeline with team glue"
+    },
+    {
+      "name": "active_travel",
+      "path": "algorithms/domains/urban/active_travel",
+      "reason": "not built in ORCHID yet; plan v2 s0 replaces urban_optimisation and mosaic_pipeline with team glue"
+    },
+    {
+      "name": "safety",
+      "path": "algorithms/domains/urban/safety",
+      "reason": "not built in ORCHID yet; plan v2 s0 replaces urban_optimisation and mosaic_pipeline with team glue"
+    },
+    {
+      "name": "land_use",
+      "path": "algorithms/domains/urban/land_use",
+      "reason": "not built in ORCHID yet; plan v2 s0 replaces urban_optimisation and mosaic_pipeline with team glue"
+    },
+    {
+      "name": "parking_curbside",
+      "path": "algorithms/domains/urban/parking_curbside",
+      "reason": "not built in ORCHID yet; plan v2 s0 replaces urban_optimisation and mosaic_pipeline with team glue"
+    },
+    {
+      "name": "realtime_operations",
+      "path": "algorithms/domains/urban/realtime_operations",
+      "reason": "not built in ORCHID yet; plan v2 s0 replaces urban_optimisation and mosaic_pipeline with team glue"
+    },
+    {
+      "name": "microsimulation",
+      "path": "algorithms/domains/urban/microsimulation",
+      "reason": "not built in ORCHID yet; plan v2 s0 replaces urban_optimisation and mosaic_pipeline with team glue"
+    },
+    {
+      "name": "geospatial_urban",
+      "path": "algorithms/domains/urban/geospatial_urban",
+      "reason": "not built in ORCHID yet; plan v2 s0 replaces urban_optimisation and mosaic_pipeline with team glue"
+    }
+  ],
+  "source": {
+    "commit": "a2e5e88582205547b4b979f9d6fdb017b8859afc",
+    "repo": "https://github.com/Orthant-Research-Group/orchid"
+  }
+}
