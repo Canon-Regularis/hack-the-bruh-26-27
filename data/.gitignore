@@ -2,6 +2,7 @@
 raw/*
 !raw/delete_this.txt
 derived/
+graph/
 .env
 .env.*
 
