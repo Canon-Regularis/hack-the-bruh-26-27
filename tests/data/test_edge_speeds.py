@@ -144,6 +144,35 @@ def test_consecutive_pairs_on_one_edge_are_one_traversal():
     assert traversal.seconds == 60.0
 
 
+def metres_north_of(position, metres):
+    return (position[0] + metres / 111_195, position[1])
+
+
+def test_gps_drift_does_not_hide_a_bus_that_matching_says_stood_still():
+    drifted = metres_north_of(STOP, 15)
+    assert is_dwell(pair(0, 30, [("edge_a", 0.0)], start=STOP, end=drifted), [STOP])
+
+
+def test_matched_movement_counts_even_if_the_gps_positions_barely_changed():
+    assert not is_dwell(stationary_pair(0, 30, [("edge_a", 50.0)], STOP), [STOP])
+
+
+def test_moved_distance_is_summed_across_edges():
+    assert is_dwell(stationary_pair(0, 30, [("edge_a", 4.0), ("edge_b", 4.0)], STOP), [STOP])
+    assert not is_dwell(stationary_pair(0, 30, [("edge_a", 6.0), ("edge_b", 6.0)], STOP), [STOP])
+
+
+def test_moving_exactly_10_m_is_not_dwell():
+    assert not is_dwell(stationary_pair(0, 30, [("edge_a", 10.0)], STOP), [STOP])
+
+
+def test_the_stop_check_uses_the_gps_positions():
+    near_stop = metres_north_of(STOP, 15)
+    far_from_stop = metres_north_of(STOP, 25)
+    assert is_dwell(stationary_pair(0, 30, [("edge_a", 0.0)], near_stop), [STOP])
+    assert not is_dwell(stationary_pair(0, 30, [("edge_a", 0.0)], far_from_stop), [STOP])
+
+
 def test_a_dwell_is_excluded_without_splitting_the_traversal():
     pairs = [
         pair(0, 30, [("edge_a", 150.0)]),
