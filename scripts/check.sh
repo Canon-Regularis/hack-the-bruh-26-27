@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # One command to check all Signal work. Exits non-zero on any failure.
-# Usage: data/scripts/check.sh   (works from any directory)
+# Usage: scripts/check.sh   (works from any directory)
 set -euo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 PYTHON="${PYTHON:-python3}"
 
@@ -13,12 +13,12 @@ echo "== (b) tests =="
 "$PYTHON" -m pytest -q tests/data
 
 echo "== (c) smoke =="
-# data/scripts/smoke.sh arrives once two pipeline stages exist. It runs the
+# scripts/smoke.sh arrives once two pipeline stages exist. It runs the
 # fixed sample in sample/ from raw pings to the latest finished stage.
-if [[ -e data/scripts/smoke.sh ]]; then
-  bash data/scripts/smoke.sh
+if [[ -e scripts/smoke.sh ]]; then
+  bash scripts/smoke.sh
 else
-  echo "SKIPPED: no data/scripts/smoke.sh yet (fewer than two pipeline stages exist)"
+  echo "SKIPPED: no scripts/smoke.sh yet (fewer than two pipeline stages exist)"
 fi
 
 echo "check.sh: PASSED"
