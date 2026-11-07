@@ -156,7 +156,7 @@ Pairs, per our rule (never solo). **T+0 was Sat 16:40**, so T+3 is 19:40, T+6 is
 
 ### Signal tasks
 
-Status at Sat 21:40, from the repo.
+Status at Sat 22:10, from the repo.
 
 | Owner | Task | Target | Status |
 |---|---|---|---|
@@ -166,17 +166,19 @@ Status at Sat 21:40, from the repo.
 | Matthew Li | Prediction JSON for the frontend | 01:40 | Not started. Needs the model. |
 | Adish | Repo setup and library check | T+0 | Done. |
 | Adish | Dwell stripping and edge-speed table | 19:40 | Code merged, including the dwell rule fix. Tested on synthetic data only. Real-data run and coverage report still to do. |
-| Adish | Features, leakage firewall, baselines, model, validation | 22:40 | Not started. Real results need matched data. Restriction flag and DfT AADF code is on `main`, but needs input files. Concern intensity does not exist yet. |
+| Adish | Features, leakage firewall, baselines, model, validation | 22:40 | Feature table and leakage firewall built and tested on the real graph with synthetic speeds, on `feat/feature-table`. DfT AADF matched (120 count points). Restriction flags need the hand-written clauses. Concern intensity does not exist yet. Baselines, model and validation not started. Real results need matched data. |
 | Adish | Assignment vs observed speeds | 01:40 | Not started. Engine's network adapter is on `main`, but there are no `user_equilibrium` outputs yet. |
 | Adish | Morning retrain, final numbers, results slide | Sun morning | Not started. |
 
-**Next for Adish:** the feature table and leakage firewall, starting with the firewall test. Get the restriction flag and DfT AADF files from Engine, and decide whether to build without concern intensity, which does not exist yet.
+**Next for Adish:** the two baselines, gradient boosting and validation, with GroupKFold by street and a time split. Unnamed streets need grouping by edge, not as one group. Real results wait on map matching, so the T+9 check (01:40) is the real deadline for them.
 
 **What Matthew Li needs from Adish:**
 
 - Later, the model output format, agreed before the prediction JSON is built.
 
 Adish sent the OSM cache, `data/raw/osm.json`, directly because it is not in git. Everyone must build from this same file, because a fresh download can give different edge ids. Run `python -m src.graph.build_graph` from the repo root to build the graph from it.
+
+**Feature inputs:** DfT AADF comes from the City of Edinburgh CSV (local authority 29), saved as `data/raw/dft_aadf.csv` and matched to edges with `python -m src.graph.count_points`. 120 of 158 count points matched, and Engine should check `data/graph/dft_review.csv` by eye. Restriction flags need `data/rules/clauses.json`, which Engine writes by hand. In Engine's graph, lanes and speed limit are road-class defaults, because OSM `lanes` and `maxspeed` are not read, so they repeat road class.
 
 **Map matching speed:** on synthetic bus traces over the real graph, `map_match` took about 0.1 to 0.16 s per ping, roughly 4 hours per 100,000 pings on one core. It picked the right edge 89 to 92% of the time. Matching must remove repeated fixes, keep only pings in the study area, run buses in parallel and run in batches as data arrives. Timing it on the 20-minute sample will replace this estimate. Fallback: `snap_point` on bus corridors only.
 
