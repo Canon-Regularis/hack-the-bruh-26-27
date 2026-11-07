@@ -22,6 +22,32 @@ class Ping:
     lon: float
 
 
+def pings_from_rows(rows):
+    """Parse and deduplicate the collector's raw CSV rows into Ping objects.
+
+    A row with a missing or unparseable vehicle_id, vehicle_timestamp, lat or
+    lon is skipped, as is one whose timestamp has no UTC offset -- Ping
+    requires a usable fix, not that every raw row becomes one. A repeated
+    (vehicle_id, time_utc) fix -- the same underlying GPS fix seen across
+    several polls -- keeps its first occurrence only.
+    """
+    seen = {}
+    for row in rows:
+        vehicle_id = row.get("vehicle_id")
+        if not vehicle_id:
+            continue
+        try:
+            time_utc = datetime.fromisoformat(row["vehicle_timestamp"])
+            lat = float(row["lat"])
+            lon = float(row["lon"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if time_utc.utcoffset() != timedelta(0):
+            continue
+        seen.setdefault((vehicle_id, time_utc), Ping(vehicle_id, time_utc, lat, lon))
+    return list(seen.values())
+
+
 def split_trips(pings, max_gap_s=DEFAULT_MAX_GAP_S):
     """Return trips: lists of >=2 Ping, one vehicle each, sorted and gap-split."""
     by_vehicle = {}

@@ -6,7 +6,7 @@ import pytest
 
 from engine.orchid import street_network as sn
 from matching.table import match_pings, match_trip
-from matching.trips import Ping, split_trips
+from matching.trips import Ping, pings_from_rows, split_trips
 
 T0 = datetime(2026, 11, 7, 18, 0, 0, tzinfo=timezone.utc)
 
@@ -46,6 +46,16 @@ def edge_id(graph, u, v):
 
 def midpoint(a, b):
     return ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+
+
+def row(vehicle_id, time_utc, position):
+    """A raw collector-style row, as csv.DictReader would hand it to us."""
+    return {
+        "vehicle_id": vehicle_id,
+        "vehicle_timestamp": time_utc.isoformat(),
+        "lat": str(position[0]),
+        "lon": str(position[1]),
+    }
 
 
 def test_match_trip_splits_metres_within_one_edge(graph, idx):
@@ -88,15 +98,17 @@ def test_match_trip_crosses_a_fully_traversed_intermediate_edge(graph, idx):
 
 
 def test_match_pings_groups_by_vehicle_and_splits_trips(graph, idx):
-    pings = [
-        Ping("bus_1", T0, *NODES["n0"]),
-        Ping("bus_1", T0 + timedelta(seconds=15), *midpoint(NODES["n0"], NODES["n1"])),
+    # Raw collector-style rows, not Ping objects -- this is match_pings' real
+    # contract: scripts/build_edge_speeds.py calls it this way.
+    rows = [
+        row("bus_1", T0, NODES["n0"]),
+        row("bus_1", T0 + timedelta(seconds=15), midpoint(NODES["n0"], NODES["n1"])),
         # A different vehicle, far later in time: its own trip, not stitched
         # onto bus_1's.
-        Ping("bus_2", T0 + timedelta(hours=2), *NODES["n1"]),
-        Ping("bus_2", T0 + timedelta(hours=2, seconds=15), *midpoint(NODES["n1"], NODES["n2"])),
+        row("bus_2", T0 + timedelta(hours=2), NODES["n1"]),
+        row("bus_2", T0 + timedelta(hours=2, seconds=15), midpoint(NODES["n1"], NODES["n2"])),
     ]
-    pairs = match_pings(pings, graph=graph, idx=idx)
+    pairs = match_pings(rows, graph=graph, idx=idx)
 
     assert {p.vehicle_id for p in pairs} == {"bus_1", "bus_2"}
     assert len(pairs) == 2
@@ -106,6 +118,19 @@ def test_match_pings_is_empty_without_touching_the_graph():
     # No graph/idx passed, and nothing to match -- must not try to load the
     # real frozen graph from disk.
     assert match_pings([]) == []
+
+
+def test_pings_from_rows_deduplicates_and_skips_bad_rows():
+    rows = [
+        row("bus_1", T0, NODES["n0"]),
+        row("bus_1", T0, NODES["n0"]),  # the same fix, seen again on a later poll
+        {"vehicle_id": "", "vehicle_timestamp": T0.isoformat(), "lat": "0", "lon": "0"},
+        {"vehicle_id": "bus_2", "vehicle_timestamp": "not a timestamp", "lat": "0", "lon": "0"},
+        {"vehicle_id": "bus_3", "vehicle_timestamp": T0.isoformat(), "lat": "", "lon": "0"},
+    ]
+    pings = pings_from_rows(rows)
+    assert len(pings) == 1
+    assert pings[0].vehicle_id == "bus_1"
 
 
 def test_split_trips_breaks_on_a_large_gap():

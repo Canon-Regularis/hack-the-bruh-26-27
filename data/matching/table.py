@@ -1,8 +1,9 @@
-"""Map matching (ALG-MVP-3): turn raw pings into PingPair rows.
+"""Map matching (ALG-MVP-3): turn the collector's raw ping rows into PingPair rows.
 
-PingPair is also the hand-off format to the speeds stage. match_pings runs
-street_network.map_match (Newson-Krumm HMM, solved exactly by Viterbi) once
-per vehicle trip, then turns each consecutive pair of matched points into the
+PingPair is also the hand-off format to the speeds stage. match_pings parses
+and deduplicates the collector's rows, splits them into per-vehicle trips,
+then runs street_network.map_match (Newson-Krumm HMM, solved exactly by
+Viterbi) once per trip. Each consecutive pair of matched points becomes the
 edges actually driven between them: the remaining stretch of the first edge,
 any edges fully crossed in between (via the library's own public
 shortest_path, the same formula its internal _route_distance uses), and the
@@ -16,10 +17,15 @@ from datetime import datetime, timedelta
 
 from engine.orchid import street_network as sn
 
-from matching.trips import split_trips
+from matching.trips import pings_from_rows, split_trips
 
 SOURCES = {"observed", "synthetic"}
 MATCH_MODE = "bus"
+
+
+class MatchingNotAvailable(NotImplementedError):
+    """Kept only so scripts/build_edge_speeds.py's import and its monkeypatched
+    "not built yet" test keep working. Real matching never raises this."""
 
 
 @dataclass(frozen=True)
@@ -107,18 +113,19 @@ def match_trip(graph, idx, trip):
 
 
 def match_pings(pings, graph=None, idx=None, *, max_gap_s=None):
-    """Turn raw pings into PingPair rows via real map matching.
+    """Turn the collector's raw ping rows into PingPair rows via real map matching.
 
-    pings: an iterable of matching.trips.Ping, already deduplicated by
-    (vehicle_id, time_utc) -- a repeated fix would otherwise produce a
-    zero-duration pair, which PingPair rejects.
+    pings: the collector's rows (e.g. from csv.DictReader) -- dicts with at
+    least vehicle_id, vehicle_timestamp and lat/lon as collector.py writes
+    them. Parsed and deduplicated by (vehicle_id, time_utc) here, so the
+    caller does not need to clean them first.
 
     graph/idx: pass a RoadGraph/EdgeIndex (e.g. for a small test fixture) to
     skip loading the real frozen graph. Left unloaded when there is nothing to
     match, so an empty or trip-less `pings` never touches disk.
     """
     trip_kwargs = {} if max_gap_s is None else {"max_gap_s": max_gap_s}
-    trips = split_trips(pings, **trip_kwargs)
+    trips = split_trips(pings_from_rows(pings), **trip_kwargs)
     if not trips:
         return []
 
