@@ -156,27 +156,32 @@ Pairs, per our rule (never solo). **T+0 was Sat 16:40**, so T+3 is 19:40, T+6 is
 
 ### Signal tasks
 
-Status at Sat 21:40, from the repo.
+Status at Sat 23:05, from the repo.
 
 | Owner | Task | Target | Status |
 |---|---|---|---|
-| Matthew Li | Collector | 17:10 | Working: 44,063 pings plotted by 21:12, including repeated fixes. We have the OK for overnight polling. Overnight run not confirmed. |
+| Matthew Li | Collector | 17:10 | Working: 44,063 pings plotted by 21:12, including repeated fixes, and a live test at 22:54 returned 203 vehicles. We have the OK for overnight polling. Overnight run not confirmed. |
 | Matthew Li | Ping plot and 20-minute sample | 18:00 | Plot merged in PR #54. The 20-minute sample and the study bbox are still to do. |
-| Matthew Li | Map matching | 19:40 | Nothing pushed yet. The road graph is on `main`, and Matthew Li has the OSM cache. Speed is a risk, see below. |
+| Matthew Li | Map matching | 19:40 | Nothing pushed yet. The road graph is on `main`, and Matthew Li has the OSM cache. `scripts/build_edge_speeds.py` calls `match_pings` as soon as it exists. Speed is a risk, see below. |
 | Matthew Li | Prediction JSON for the frontend | 01:40 | Not started. Needs the model. |
 | Adish | Repo setup and library check | T+0 | Done. |
 | Adish | Dwell stripping and edge-speed table | 19:40 | Code merged, including the dwell rule fix. Tested on synthetic data only. Real-data run and coverage report still to do. |
-| Adish | Features, leakage firewall, baselines, model, validation | 22:40 | Not started. Real results need matched data. Restriction flag and DfT AADF code is on `main`, but needs input files. Concern intensity does not exist yet. |
-| Adish | Assignment vs observed speeds | 01:40 | Not started. Engine's network adapter is on `main`, but there are no `user_equilibrium` outputs yet. |
+| Adish | Features, leakage firewall, baselines, model, validation | 22:40 | Built and tested on the real graph with synthetic speeds, in three PRs to merge in order: `feat/feature-table`, `feat/speed-model`, `feat/edge-speed-file`. The model is LightGBM. On synthetic data it beat both baselines and passed the leakage check. Real results need matched data. |
+| Adish | Assignment vs observed speeds | 01:40 | Not started. Engine's baseline equilibrium code is on `main` (#24) and writes per-edge times, but it needs `data/demand/od_matrix.json` first. How to compare is not decided yet. |
 | Adish | Morning retrain, final numbers, results slide | Sun morning | Not started. |
 
-**Next for Adish:** the feature table and leakage firewall, starting with the firewall test. Get the restriction flag and DfT AADF files from Engine, and decide whether to build without concern intensity, which does not exist yet.
+**Next for Adish:** when matching lands, run `scripts/build_edge_speeds.py`, then `scripts/evaluate_speed_model.py --speeds data/derived/edge_speeds.csv`, which writes a dated report to `data/derived/reports/`. Then train once on all observed data and predict unobserved edges for the prediction JSON, add concern intensity now that its code is on `main` (#25), and decide how to compare assignment times with observed speeds.
 
 **What Matthew Li needs from Adish:**
 
+- `match_pings(pings)` in `data/matching/table.py` to take the collector's rows and return `PingPair` rows, because `scripts/build_edge_speeds.py` calls it that way.
 - Later, the model output format, agreed before the prediction JSON is built.
 
 Adish sent the OSM cache, `data/raw/osm.json`, directly because it is not in git. Everyone must build from this same file, because a fresh download can give different edge ids. Run `python -m src.graph.build_graph` from the repo root to build the graph from it.
+
+**Feature inputs:** DfT AADF comes from the City of Edinburgh CSV (local authority 29), saved as `data/raw/dft_aadf.csv` and matched to edges with `python -m src.graph.count_points`. 120 of 158 count points matched, and Engine should check `data/graph/dft_review.csv` by eye. Restriction flags need `data/rules/clauses.json`, which Engine writes by hand. In Engine's graph, lanes and speed limit are road-class defaults, because OSM `lanes` and `maxspeed` are not read, so they repeat road class.
+
+**Model setup:** the speed model uses LightGBM 4.6.0, pinned in `data/requirements.txt`. On macOS it also needs `brew install libomp`. Concern intensity code is on `main` (#25) and writes `data/concerns/concern_field.csv` from `data/raw/concerns.csv`.
 
 **Map matching speed:** on synthetic bus traces over the real graph, `map_match` took about 0.1 to 0.16 s per ping, roughly 4 hours per 100,000 pings on one core. It picked the right edge 89 to 92% of the time. Matching must remove repeated fixes, keep only pings in the study area, run buses in parallel and run in batches as data arrives. Timing it on the 20-minute sample will replace this estimate. Fallback: `snap_point` on bus corridors only.
 
