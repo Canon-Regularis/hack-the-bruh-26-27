@@ -1,9 +1,10 @@
 # Never commit raw data, derived data or secrets (kickoff rule 8).
 # The .gitkeep exceptions keep the folders present after a fresh clone.
-data/raw/*
-!data/raw/.gitkeep
-data/derived/*
-!data/derived/.gitkeep
+raw/*
+!raw/.gitkeep
+!raw/delete_this.txt
+derived/*
+!derived/.gitkeep
 .env
 .env.*
 

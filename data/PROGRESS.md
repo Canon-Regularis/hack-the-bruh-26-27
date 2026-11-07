@@ -129,3 +129,45 @@ The PyPI package `Orchid` 1.1 is a "Generic Multi Threaded Web Crawler", which i
 - All 9 signatures are still unconfirmed, so code written against them may need changes after the swap.
 
 **Next task per v2 (not started):** Task 1, TfE endpoint test and collector. T+0.5 (17:10) has passed.
+
+### Task 3, speeds part (owner: Adish), BLOCKED
+
+Waiting on the answers the kickoff requires before building. Nothing has been built. Matthew Li owns the matching half of this task.
+
+**What was achieved:**
+- Adish clarified that this work covers Adish's tasks only. Task 1 belongs to Matthew Li, so it was undone.
+- Checked what the speeds stage needs from other people.
+- Logged the two questions the kickoff requires, plus the RoadGraph question, as Q3 to Q5 in `DECISIONS.md`.
+
+**Files created or changed:** `DECISIONS.md`, `PROGRESS.md`. None committed.
+
+**How to run it:** nothing to run yet.
+
+**Checks:** `signal/scripts/check.sh`: lint passed, 27 tests passed, 0 failed, smoke skipped (no pipeline stages yet), exit 0. No new tests, because the kickoff says to ask before building.
+
+**Review pass findings:** no pipeline code exists yet, so there are no stages to compare.
+
+**What the speeds stage needs:**
+
+| Needed | Owner | Status at 17:40 |
+|---|---|---|
+| RoadGraph of the agreed study area | Engine | Not on the remote. `src/graph/` holds only a placeholder. |
+| Real `orchid` (`map_match`) | Sub-issue | Not available. `orchid_api.py` raises an error. |
+| Matched traces | Matthew Li | Not started as far as the remote shows |
+| Agreed study area and fixed sample | Matthew Li (Task 2), then the team | Not started as far as the remote shows |
+
+**Numbers produced:** none.
+
+**Assumptions made:** none.
+
+**Questions or blockers waiting on a person:** Q3, Q4 and Q5 in `DECISIONS.md`.
+
+**Risks noticed:**
+- The kickoff's full synthetic test adds GPS noise, which needs real map matching. Until `map_match` exists, a synthetic test can only cover the speeds stage.
+- Thresholds for dwell depend on the ping interval, which is unknown until the bus data source is settled.
+
+**Next task per v2 (not started):** the Task 3 speeds build once Q3 to Q5 are answered, then Task 4.
+
+### Layout update (18:00): Signal work moved into `data/`
+
+Adish asked for `data/` to hold what `signal/` held. Older entries above still say `signal/`, so read those paths as `data/`. `signal/data/raw`, `derived` and `sample` are now `data/raw`, `data/derived` and `data/sample`. Run checks with `data/scripts/check.sh`. Q3 to Q6 are answered in `DECISIONS.md`.

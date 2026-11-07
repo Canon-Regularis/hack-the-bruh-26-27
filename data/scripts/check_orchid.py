@@ -1,7 +1,7 @@
 """Confirm the orchid entry points named in v2 section 2 and print their signatures.
 
 Usage:
-    python3 signal/scripts/check_orchid.py [DIR_CONTAINING_THE_ORCHID_PACKAGE]
+    python3 data/scripts/check_orchid.py [DIR_CONTAINING_THE_ORCHID_PACKAGE]
 
 Exits 0 only if every entry point is found. This only reads orchid, it never
 changes it. Not part of check.sh, because orchid is not always installed.
