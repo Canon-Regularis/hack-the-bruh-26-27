@@ -22,6 +22,8 @@ SOURCES_DIR = ROOT / "data" / "raw" / "sources"
 FLAGS_PATH = ROOT / "data" / "rules" / "restriction_flags.csv"
 
 RESTRICTIONS = ("no_motor_vehicles", "one_way", "pedestrian_only")
+KEEP_OPEN = "keep_open"
+CLAUSE_TYPES = (*RESTRICTIONS, KEEP_OPEN)
 ALL_DAY = "at any time"
 
 
@@ -35,30 +37,47 @@ class Report:
     applied: list[str] = field(default_factory=list)
     wrong_on_osm: list[str] = field(default_factory=list)
     abstained: list[tuple[str, str]] = field(default_factory=list)
+    keep_open: dict[str, set[str]] = field(default_factory=dict)
 
 
 def load_clauses(path: Path) -> list[dict]:
     """Read the hand-written clauses.
 
-    Each has clause_id, document_id, page, quote, street, restriction, times and
+    Each has clause_id, document_id, page, quote, street, restriction (one of CLAUSE_TYPES), times and
     exemptions (a list, or "unspecified"); one-way clauses also have from_street and to_street.
+    Clause ids must be unique, so no clause's edges can replace another's.
     """
-    return json.loads(path.read_text(encoding="utf-8"))
+    clauses = json.loads(path.read_text(encoding="utf-8"))
+    ids = [c["clause_id"] for c in clauses]
+    if len(set(ids)) != len(ids):
+        raise ValueError(f"{path}: clause ids must be unique")
+    return clauses
+
+
+def load_sources(clauses: list[dict], sources_dir: Path) -> dict[str, str]:
+    """Read the cached text of every document the clauses quote, skipping any not cached."""
+    return {doc: path.read_text(encoding="utf-8") for doc in {c["document_id"] for c in clauses}
+            if (path := sources_dir / f"{doc}.txt").exists()}
 
 
 def abstain_reason(clause: dict, sources: dict[str, str]) -> str | None:
-    """Return why a clause can't be applied honestly, or None if it can."""
+    """Return why a clause can't be applied honestly, or None if it can.
+
+    keep_open clauses skip the exemptions and all-day checks: a street that must stay open
+    for part of the day, or for unlisted users, still can't be closed outright.
+    """
     source = sources.get(clause["document_id"])
     if source is None:
         return f"source {clause['document_id']!r} is not cached"
     if clause["quote"] not in source:
         return "quote is not word for word in its source"
-    if clause["restriction"] not in RESTRICTIONS:
+    if clause["restriction"] not in CLAUSE_TYPES:
         return f"unknown restriction {clause['restriction']!r}"
-    if clause["exemptions"] == "unspecified":
-        return "exemptions are not listed"
-    if clause["times"].strip().lower() != ALL_DAY:
-        return f"time-limited ({clause['times']}), but flags and OSM tags are all-day"
+    if clause["restriction"] != KEEP_OPEN:
+        if clause["exemptions"] == "unspecified":
+            return "exemptions are not listed"
+        if clause["times"].strip().lower() != ALL_DAY:
+            return f"time-limited ({clause['times']}), but flags and OSM tags are all-day"
     if clause["restriction"] == "one_way" and not (clause.get("from_street") and clause.get("to_street")):
         return "one-way clause needs from_street and to_street"
     return None
@@ -142,6 +161,9 @@ def check_clauses(clauses: list[dict], sources: dict[str, str], graph: sn.RoadGr
             report.abstained.append((clause["clause_id"], reason))
             continue
         restriction = clause["restriction"]
+        if restriction == KEEP_OPEN:
+            report.keep_open[clause["clause_id"]] = {str(e.eid) for e in edges}
+            continue
         report.bound[restriction].update(str(e.eid) for e in edges)
         report.applied.append(clause["clause_id"])
         if not all(osm_agrees(restriction, e) for e in edges):
@@ -159,9 +181,7 @@ def main() -> None:
     """Bind every clause, write the flags CSV, and print the OSM mismatch count and abstained clauses."""
     graph = load_graph()
     clauses = load_clauses(CLAUSES_PATH)
-    sources = {doc: path.read_text(encoding="utf-8") for doc in {c["document_id"] for c in clauses}
-               if (path := SOURCES_DIR / f"{doc}.txt").exists()}
-    report = check_clauses(clauses, sources, graph)
+    report = check_clauses(clauses, load_sources(clauses, SOURCES_DIR), graph)
 
     FLAGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     with FLAGS_PATH.open("w", newline="", encoding="utf-8") as f:
@@ -174,6 +194,7 @@ def main() -> None:
           else f"No legal restrictions missing or wrong on OSM ({checked} checked)")
     for cid in report.wrong_on_osm:
         print(f"  wrong on OSM: {cid}")
+    print(f"{len(report.keep_open)} keep-open clauses bound, for the design filter")
     print(f"{len(report.abstained)} abstained:")
     for cid, reason in report.abstained:
         print(f"  {cid}: {reason}")
