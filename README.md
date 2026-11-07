@@ -1,4 +1,4 @@
-```
+```text
 Yakshdevsing (Adish) Boodhun
 Darryl Liu Liong Wah
 Matthew Li
@@ -7,8 +7,8 @@ Matthew Miezaniec
 
 ## ORCHID library (vendored)
 
-The maths comes from ORCHID: 13 modules copied byte for byte into `vendor/orchid/` from ORCHID
-commit `156ca53`, which is pinned in `scripts/sync_orchid.py`. They use only the standard
+The maths comes from ORCHID: 14 modules copied byte for byte into `vendor/orchid/` from ORCHID
+commit `faf522f`, which is pinned in `scripts/sync_orchid.py`. They use only the standard
 library and need Python 3.8+, so there is nothing to install and no ORCHID clone to set up.
 Import them through one wrapper, and run code from the repo root (e.g.
 `python -m src.graph.build_graph`):
@@ -23,6 +23,7 @@ from engine.orchid import street_network as sn, traffic_assignment as ta
 | `traffic_assignment` | §2 vehicle response | `user_equilibrium`, `detect_braess` |
 | `travel_demand` | §2 demand | `gravity_model`, `gls_matrix_estimation` |
 | `pedestrian_flow` | §2 pedestrians | `crossing_delay`, `fruin_los` |
+| `public_voice` | §2 complaints; §4 J_voice (**not converged**, see below) | `ingest_concerns`, `classify_theme`, `find_near_duplicates`, `concern_field`, `local_getis_ord`, `hotspot_clusters`, `voice_objective`, `voice_improvement` |
 | `emissions_environment` | display only | `network_emission_proxy` |
 | `data_splitting` | §3 validation | `GroupKFold`, `TimeSeriesSplit` |
 | `ensembles` | §3 model fallback | `GradientBoostingRegressor` (no quantile loss) |
@@ -37,9 +38,16 @@ counts in those READMEs are out of date.
 **Held back.** These raise `ImportError`, with the reason, if you import them from
 `engine.orchid`:
 
-- `public_voice`, `network_design`, `resilience`: ORCHID's bug hunts on them haven't converged.
+- `network_design`, `resilience`: ORCHID's bug hunts on them haven't converged.
 - `green_infrastructure`: a min-cut-tree bug against the current core.
 - core `probabilistic`: a known erf defect.
+
+**Vendored before convergence.** `public_voice` and `policy_compiler` are enabled although
+their hunts haven't converged:
+
+- `public_voice`: rounds 6 and 7 found and fixed 5 and 4 template bugs, so a later round may
+  find more. Sanity-check every number from it before showing it.
+- `policy_compiler`: see the caveat below.
 
 To enable one once it's fixed:
 

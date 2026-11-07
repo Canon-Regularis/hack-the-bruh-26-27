@@ -41,6 +41,9 @@
     "algorithms/domains/urban/policy_compiler/README.md": "a0405e4ddfa7d6c6f7eb1349f7d650d72b45e785",
     "algorithms/domains/urban/policy_compiler/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
     "algorithms/domains/urban/policy_compiler/policy_compiler_template.py": "3a343143f1d29f6bc28a26eef7e763d3302daec4",
+    "algorithms/domains/urban/public_voice/README.md": "32d100324760706e2ec13fd13e5260335e021c53",
+    "algorithms/domains/urban/public_voice/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/domains/urban/public_voice/public_voice_template.py": "9f800eab15cf8e9e0d6dafb7166d870b1c158a25",
     "algorithms/domains/urban/signal_control/README.md": "fc0a5c87ccf79f01aa4e75bfbcb94c40d5ec5677",
     "algorithms/domains/urban/signal_control/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
     "algorithms/domains/urban/signal_control/signal_control_template.py": "43bd51c048cc8a0632aea87fe377a038cb34bf81",
@@ -68,6 +71,7 @@
       "name": "probabilistic",
       "optional_import_skipped_by": [
         "emissions_environment",
+        "public_voice",
         "travel_demand"
       ],
       "path": "algorithms/core/probabilistic",
@@ -84,12 +88,6 @@
       "optional_import_skipped_by": [],
       "path": "algorithms/domains/urban/network_design",
       "reason": "pending: not converged, bug-hunt round 3 still found 4 template bugs (URBAN_PICKUP.md)"
-    },
-    {
-      "name": "public_voice",
-      "optional_import_skipped_by": [],
-      "path": "algorithms/domains/urban/public_voice",
-      "reason": "pending: not converged, bug-hunt round 5 still found 5 template bugs (URBAN_PICKUP.md)"
     },
     {
       "name": "resilience",
@@ -225,6 +223,15 @@
       "role": "urban"
     },
     {
+      "import": "algorithms.domains.urban.public_voice.public_voice_template",
+      "name": "public_voice",
+      "path": "algorithms/domains/urban/public_voice",
+      "reason": "plan s2/s4 (NOT converged, see comment): ingest_concerns, classify_theme, find_near_duplicates, concern_field, local_getis_ord, hotspot_clusters, voice_objective, voice_improvement",
+      "required_by": [],
+      "requires": [],
+      "role": "urban"
+    },
+    {
       "import": "algorithms.domains.urban.signal_control.signal_control_template",
       "name": "signal_control",
       "path": "algorithms/domains/urban/signal_control",
@@ -327,7 +334,7 @@
     }
   ],
   "source": {
-    "commit": "156ca53033a18775afc669929220e3f035dda5f0",
+    "commit": "faf522fa9e8f7eaedbd0ffb55ef22a9153d02706",
     "repo": "https://github.com/Orthant-Research-Group/orchid"
   }
 }

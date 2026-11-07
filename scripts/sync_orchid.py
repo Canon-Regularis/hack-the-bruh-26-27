@@ -33,7 +33,7 @@ from pathlib import Path, PurePosixPath
 
 # ------------------------------------------------------------------- config (edit here) ---
 ORCHID_REPO = "https://github.com/Orthant-Research-Group/orchid"
-ORCHID_COMMIT = "156ca53033a18775afc669929220e3f035dda5f0"  # origin/main, merge of PR #7 (policy_compiler round 8)
+ORCHID_COMMIT = "faf522fa9e8f7eaedbd0ffb55ef22a9153d02706"  # origin/main, merge of PR #8 (policy_compiler rounds 6-8, public_voice rounds 6-7)
 FILES_PER_MODULE = ("__init__.py", "README.md", "{name}_template.py")
 
 URBAN = "algorithms/domains/urban/"
@@ -51,6 +51,12 @@ URBAN_READY = {
     # Enabled by decision on 2026-11-07 with hunt rounds 6-8 merged (ORCHID #4, #6, #7). Not converged:
     # classify_wording (the wording_ambiguous gate) still finds bugs, so set clause strength by hand.
     URBAN + "policy_compiler": "plan s2 rules: compile_policy, verify_span, Gazetteer, AbstentionQueue, policy_check",
+    # Vendored BEFORE convergence at the team's request (2026-11-07): hunt rounds 6 and 7 found and
+    # fixed 5 and 4 template bugs (history 12, 8, 5, 5, 5, 5, 4), so a later round may find more.
+    # Sanity-pin every number shown from it.  Round 6 is ORCHID PR #5 (merged); round 7 is PR #8.
+    URBAN + "public_voice": (
+        "plan s2/s4 (NOT converged, see comment): ingest_concerns, classify_theme, find_near_duplicates, "
+        "concern_field, local_getis_ord, hotspot_clusters, voice_objective, voice_improvement"),
 }
 
 # Core modules the plan calls directly.
@@ -63,7 +69,6 @@ CORE_EXTRA = {
 
 # Never copied.  Importing one through engine.orchid raises ImportError with this reason.
 HELD = {
-    URBAN + "public_voice": "pending: not converged, bug-hunt round 5 still found 5 template bugs (URBAN_PICKUP.md)",
     URBAN + "network_design": "pending: not converged, bug-hunt round 3 still found 4 template bugs (URBAN_PICKUP.md)",
     URBAN + "resilience": "pending: not converged, bug-hunt round 7 still found 4 template bugs (URBAN_PICKUP.md)",
     URBAN + "green_infrastructure": (
