@@ -49,7 +49,7 @@ def ue_rows(net: ta.Network, result: ta.AssignmentResult) -> list[dict]:
 
 def main() -> None:
     """Run the baseline equilibrium, write the edge CSV for Signal and the hour and gap beside it."""
-    graph, _ = load_graph()
+    graph = load_graph()
     net, node_ids = to_network(graph)
     od, hour = load_od(OD_PATH, node_ids)
     result = run_ue(net, od)

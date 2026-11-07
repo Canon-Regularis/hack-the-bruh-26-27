@@ -93,7 +93,7 @@ def test_main_writes_edge_csv_and_hour(graph, od_path, tmp_path, monkeypatch, ca
     monkeypatch.setattr(bue, "OD_PATH", od_path)
     monkeypatch.setattr(bue, "UE_PATH", tmp_path / "demand" / "baseline_user_equilibrium.csv")
     monkeypatch.setattr(bue, "UE_META_PATH", tmp_path / "demand" / "baseline_user_equilibrium.json")
-    monkeypatch.setattr(bue, "load_graph", lambda: (graph, None))
+    monkeypatch.setattr(bue, "load_graph", lambda: graph)
 
     bue.main()
 

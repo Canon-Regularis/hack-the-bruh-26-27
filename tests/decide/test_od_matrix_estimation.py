@@ -142,7 +142,7 @@ def test_main_writes_labelled_matrix_and_count_fit(graph, tmp_path, monkeypatch,
     monkeypatch.setattr(od, "OD_PATH", tmp_path / "demand" / "od_matrix.json")
     monkeypatch.setattr(od, "FIT_PATH", tmp_path / "demand" / "count_fit.csv")
     monkeypatch.setattr(od, "N_ZONES", 4)
-    monkeypatch.setattr(od, "load_graph", lambda mode=None: (graph, None))
+    monkeypatch.setattr(od, "load_graph", lambda: graph)
 
     od.main()
 

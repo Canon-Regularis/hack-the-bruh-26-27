@@ -170,7 +170,7 @@ def estimate_od(net: ta.Network, centroids: list[int], counts: dict[str, float],
 
 def main() -> None:
     """Estimate the OD matrix, write it labelled as estimated with its hour, and write the count fit."""
-    graph, _ = load_graph(mode="car")
+    graph = load_graph()
     net, node_ids = to_network(graph)
     edge_to_link, _ = link_maps(net)
     counts, count_edges = hourly_counts(AADF_PATH)
