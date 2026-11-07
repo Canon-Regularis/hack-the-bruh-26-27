@@ -33,7 +33,7 @@ from pathlib import Path, PurePosixPath
 
 # ------------------------------------------------------------------- config (edit here) ---
 ORCHID_REPO = "https://github.com/Orthant-Research-Group/orchid"
-ORCHID_COMMIT = "faf522fa9e8f7eaedbd0ffb55ef22a9153d02706"  # origin/main, merge of PR #8 (policy_compiler rounds 6-8, public_voice rounds 6-7)
+ORCHID_COMMIT = "51931773f9a479dee31588c1d943d14996894e2e"  # PR #9 head: faf522f content + public_voice list-item fix (policy_compiler rounds 6-8, public_voice rounds 6-7)
 FILES_PER_MODULE = ("__init__.py", "README.md", "{name}_template.py")
 
 URBAN = "algorithms/domains/urban/"
