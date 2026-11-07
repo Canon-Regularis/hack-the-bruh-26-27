@@ -20,8 +20,9 @@ class PingPair:
     """Two consecutive pings from one bus, after map matching.
 
     Times are the GPS fix times in UTC, not the time we polled for them.
-    Positions are (latitude, longitude). Edges are (edge_id, metres) in the order
-    driven. A bus standing still lists the edge it is on, with 0 metres.
+    Positions are the raw GPS (latitude, longitude), not matched positions. Edges
+    are (edge_id, metres) in the order driven, from matching. A bus standing still
+    lists the edge it is on, with 0 metres.
     """
 
     vehicle_id: str
