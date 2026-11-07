@@ -161,7 +161,7 @@ Status at Sat 21:20, from the repo.
 | Owner | Task | Target | Status |
 |---|---|---|---|
 | Matthew Li | Collector | 17:10 | Code merged, and we have the OK for overnight polling. Some data collected, going by the ping plot branch. Overnight run not confirmed. |
-| Matthew Li | Ping plot and 20-minute sample | 18:00 | Plot on `feat/ping-plot`, with no PR yet. No sample on `main`. |
+| Matthew Li | Ping plot and 20-minute sample | 18:00 | Plot in PR #54, not merged. No sample on `main`. |
 | Matthew Li | Map matching | 19:40 | Nothing pushed yet. The road graph is on `main` and the OSM cache is ready, so this can start. |
 | Matthew Li | Prediction JSON for the frontend | 01:40 | Not started. Needs the model. |
 | Adish | Repo setup and library check | T+0 | Done. |
@@ -175,7 +175,7 @@ Status at Sat 21:20, from the repo.
 **What Matthew Li needs from Adish:**
 
 - The OSM cache, `data/raw/osm.json`, sent directly because it is not in git.
-- A decision on whether `data/out/ping_plot.png` belongs in git, once the ping plot has a PR.
+- A decision on whether `data/out/ping_plot.png` belongs in git, in PR #54.
 - Later, the model output format, agreed before the prediction JSON is built.
 
 Everyone must build from the same OSM cache, because a fresh download can give different edge ids. Run `python -m src.graph.build_graph` from the repo root to build the graph from it.
