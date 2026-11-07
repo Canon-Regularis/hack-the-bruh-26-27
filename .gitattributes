@@ -1,0 +1,3 @@
+# ORCHID is vendored byte for byte from upstream git blobs (see vendor/orchid/MANIFEST.json).
+# -text: never convert line endings (core.autocrlf=true here), so the files stay identical to upstream.
+vendor/orchid/** -text linguist-vendored linguist-generated
