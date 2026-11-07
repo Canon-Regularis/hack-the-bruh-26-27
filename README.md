@@ -23,6 +23,7 @@ from engine.orchid import street_network as sn, traffic_assignment as ta
 | `traffic_assignment` | §2 vehicle response | `user_equilibrium`, `detect_braess` |
 | `travel_demand` | §2 demand | `gravity_model`, `gls_matrix_estimation` |
 | `pedestrian_flow` | §2 pedestrians | `crossing_delay`, `fruin_los` |
+| `public_voice` | §2 complaints; §4 J_voice (**not converged**, see below) | `ingest_concerns`, `classify_theme`, `find_near_duplicates`, `concern_field`, `local_getis_ord`, `hotspot_clusters`, `voice_objective`, `voice_improvement` |
 | `emissions_environment` | display only | `network_emission_proxy` |
 | `data_splitting` | §3 validation | `GroupKFold`, `TimeSeriesSplit` |
 | `ensembles` | §3 model fallback | `GradientBoostingRegressor` (no quantile loss) |
@@ -36,8 +37,12 @@ counts in those READMEs are out of date.
 **Held back.** These raise `ImportError`, with the reason, if you import them from
 `engine.orchid`:
 
-- `policy_compiler`, `public_voice`, `network_design`, `resilience`: ORCHID's bug hunts on them
-  haven't converged.
+- `policy_compiler`, `network_design`, `resilience`: ORCHID's bug hunts on them haven't
+  converged.
+
+`public_voice` is vendored even though its hunts haven't converged either: rounds 6 and 7
+found and fixed 5 and 4 template bugs, so a later round may find more. Sanity-check every
+number from it before showing it.
 - `green_infrastructure`: a min-cut-tree bug against the current core.
 - core `probabilistic`: a known erf defect.
 
