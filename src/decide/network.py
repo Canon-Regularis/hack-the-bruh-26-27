@@ -30,3 +30,9 @@ def link_maps(net: ta.Network) -> tuple[dict[str, int], list[str]]:
     """
     link_to_edge = [link.name for link in net.links]
     return {eid: i for i, eid in enumerate(link_to_edge)}, link_to_edge
+
+
+def od_matrix(matrix: list[list[float]], centroids: list[int]) -> ta.ODMatrix:
+    """Turn a zone-by-zone trip matrix into an orchid ODMatrix on the centroids' network nodes."""
+    return ta.ODMatrix({(centroids[i], centroids[j]): trips
+                        for i, row in enumerate(matrix) for j, trips in enumerate(row) if trips > 0.0})
