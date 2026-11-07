@@ -23,8 +23,12 @@ def distance_m(a, b):
 
 
 def is_dwell(pair, stops):
-    """Return True if the bus moved under 10 m and was within 20 m of a stop."""
-    if distance_m(pair.start_position, pair.end_position) >= STATIONARY_M:
+    """Return True if the bus moved under 10 m and was within 20 m of a stop.
+
+    Movement comes from the matched metres in pair.edges, because GPS drift makes
+    a parked bus look like it moved. The stop check uses the raw GPS positions.
+    """
+    if sum(metres for _, metres in pair.edges) >= STATIONARY_M:
         return False
     return any(
         distance_m(position, stop) <= STOP_RADIUS_M
