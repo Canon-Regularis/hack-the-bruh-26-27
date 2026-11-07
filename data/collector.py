@@ -34,6 +34,7 @@ BUSTIMES_URL = "https://bustimes.org/vehicles.json"
 DEFAULT_BBOX = {"xmin": -3.35, "ymin": 55.86, "xmax": -3.05, "ymax": 56.00}
 DEFAULT_OUTDIR = Path(__file__).resolve().parent / "raw"
 DEFAULT_INTERVAL = 30
+MAX_WAIT_SECONDS = 600
 USER_AGENT = "hacktheburgh-collector/0.1 (HackTheBurgh XIII, Team Civilian$)"
 
 # bustimes.org has no published schema for /vehicles.json, so pull by alias
@@ -128,6 +129,51 @@ def parse_row(record, polled_at):
     return row
 
 
+def write_rows(writer, vehicles, polled_at):
+    """Write a row per record, skipping any record that cannot be parsed.
+
+    The API has no published schema, so one odd record must not end an overnight
+    run. Skipped records are still in the raw reply in pings.jsonl.
+    """
+    written = skipped = 0
+    for record in vehicles:
+        try:
+            row = parse_row(record, polled_at)
+        except Exception as exc:
+            skipped += 1
+            print(f"[{polled_at}] skipped a record ({exc!r})")
+            continue
+        writer.writerow(row)
+        written += 1
+    return written, skipped
+
+
+def retry_after_seconds(exc):
+    """Return the Retry-After seconds from a failed request, or None.
+
+    The header can also hold a date. That falls back to the normal back-off.
+    """
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None
+    try:
+        return max(0, int(response.headers.get("Retry-After")))
+    except (TypeError, ValueError):
+        return None
+
+
+def next_wait(interval, failures, retry_after=None):
+    """Return the seconds to wait before the next poll.
+
+    Doubles with each failure in a row up to MAX_WAIT_SECONDS, and never waits
+    less than the interval or less than the site asked for.
+    """
+    if failures == 0:
+        return interval
+    backoff = max(interval, min(interval * 2**failures, MAX_WAIT_SECONDS))
+    return max(backoff, retry_after or 0)
+
+
 def run_test(bbox) -> int:
     url = build_url(bbox)
     print(f"GET {url}")
@@ -177,22 +223,24 @@ def run_collect(bbox, interval, outdir) -> None:
         while True:
             polled_at = datetime.now(timezone.utc).isoformat()
             loop_start = time.monotonic()
+            retry_after = None
             try:
                 payload = fetch(bbox)
                 vehicles = extract_vehicles(payload)
             except Exception as exc:
                 consecutive_failures += 1
+                retry_after = retry_after_seconds(exc)
                 print(f"[{polled_at}] poll failed ({exc}); {consecutive_failures} in a row")
             else:
                 consecutive_failures = 0
                 with open(raw_path, "a") as raw_f:
                     raw_f.write(json.dumps({"polled_at": polled_at, "payload": payload}) + "\n")
-                for record in vehicles:
-                    writer.writerow(parse_row(record, polled_at))
+                written, skipped = write_rows(writer, vehicles, polled_at)
                 csv_f.flush()
-                print(f"[{polled_at}] {len(vehicles)} vehicles")
+                print(f"[{polled_at}] {written} vehicles, {skipped} skipped")
 
-            sleep_for = interval - (time.monotonic() - loop_start)
+            wait = next_wait(interval, consecutive_failures, retry_after)
+            sleep_for = wait - (time.monotonic() - loop_start)
             if sleep_for > 0:
                 time.sleep(sleep_for)
 
