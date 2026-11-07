@@ -18,7 +18,7 @@ def is_ignored(path):
 
 @pytest.mark.parametrize(
     "path",
-    ["raw/pings.jsonl", "derived/speeds.parquet", ".env"],
+    ["raw/pings.jsonl", "raw/osm.json", "derived/speeds.parquet", "graph/graph.pkl", ".env"],
 )
 def test_sensitive_paths_are_gitignored(path):
     assert is_ignored(path)
