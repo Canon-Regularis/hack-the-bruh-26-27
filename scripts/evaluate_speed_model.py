@@ -46,7 +46,7 @@ def main():
     args = parser.parse_args()
 
     started = time.monotonic()
-    graph, _ = load_graph()
+    graph = load_graph()
     flags = read_flags(DATA / "rules" / "restriction_flags.csv")
     aadf = read_aadf(DATA / "graph" / "dft_aadf.csv")
     betweenness = read_betweenness(DATA / "derived" / "betweenness.json")
