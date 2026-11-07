@@ -14,6 +14,13 @@
     "algorithms/core/ml/ensembles/README.md": "58e6abc28e07b2c8f4335a96b13b8033f9829251",
     "algorithms/core/ml/ensembles/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
     "algorithms/core/ml/ensembles/ensembles_template.py": "4a4d758fd2c32f18cc60fb8cb80e5bca84dbccdc",
+    "algorithms/core/nlp/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/core/nlp/search/README.md": "faa2dd25801746b82147c966fe307fb58b1ee9df",
+    "algorithms/core/nlp/search/__init__.py": "8b137891791fe96927ad78e64b0aad7bded08bdc",
+    "algorithms/core/nlp/search/search_template.py": "77d08ee57c8d75eef70760c6d735b47a6f8232f4",
+    "algorithms/core/nlp/similarity/README.md": "44237d023c3c48eb299accf33c76a6e597c42ef9",
+    "algorithms/core/nlp/similarity/__init__.py": "8b137891791fe96927ad78e64b0aad7bded08bdc",
+    "algorithms/core/nlp/similarity/similarity_template.py": "71efbe2b61f60c68d59f68dd9e79dc78942f36da",
     "algorithms/core/optimisation/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
     "algorithms/core/optimisation/multi_objective/README.md": "e3002d26381e5ffc745d7a7c30339c407fb486ed",
     "algorithms/core/optimisation/multi_objective/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
@@ -31,6 +38,9 @@
     "algorithms/domains/urban/pedestrian_flow/README.md": "84f5882bf2512d78a8ac9e2777836b3cde145f62",
     "algorithms/domains/urban/pedestrian_flow/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
     "algorithms/domains/urban/pedestrian_flow/pedestrian_flow_template.py": "7357887cb222cddee0ae804f30d70f965efb107d",
+    "algorithms/domains/urban/policy_compiler/README.md": "a0405e4ddfa7d6c6f7eb1349f7d650d72b45e785",
+    "algorithms/domains/urban/policy_compiler/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/domains/urban/policy_compiler/policy_compiler_template.py": "3a343143f1d29f6bc28a26eef7e763d3302daec4",
     "algorithms/domains/urban/signal_control/README.md": "fc0a5c87ccf79f01aa4e75bfbcb94c40d5ec5677",
     "algorithms/domains/urban/signal_control/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
     "algorithms/domains/urban/signal_control/signal_control_template.py": "43bd51c048cc8a0632aea87fe377a038cb34bf81",
@@ -74,12 +84,6 @@
       "optional_import_skipped_by": [],
       "path": "algorithms/domains/urban/network_design",
       "reason": "pending: not converged, bug-hunt round 3 still found 4 template bugs (URBAN_PICKUP.md)"
-    },
-    {
-      "name": "policy_compiler",
-      "optional_import_skipped_by": [],
-      "path": "algorithms/domains/urban/policy_compiler",
-      "reason": "pending: parser rewritten, one more confirmation bug-hunt round advised (URBAN_PICKUP.md)"
     },
     {
       "name": "public_voice",
@@ -137,6 +141,28 @@
       "role": "core"
     },
     {
+      "import": "algorithms.core.nlp.search.search_template",
+      "name": "search",
+      "path": "algorithms/core/nlp/search",
+      "reason": "optional core import of vendored modules",
+      "required_by": [
+        "policy_compiler"
+      ],
+      "requires": [],
+      "role": "dependency"
+    },
+    {
+      "import": "algorithms.core.nlp.similarity.similarity_template",
+      "name": "similarity",
+      "path": "algorithms/core/nlp/similarity",
+      "reason": "optional core import of vendored modules",
+      "required_by": [
+        "policy_compiler"
+      ],
+      "requires": [],
+      "role": "dependency"
+    },
+    {
       "import": "algorithms.core.optimisation.multi_objective.multi_objective_template",
       "name": "multi_objective",
       "path": "algorithms/core/optimisation/multi_objective",
@@ -184,6 +210,18 @@
       "reason": "plan s2: crossing_delay, fruin_los",
       "required_by": [],
       "requires": [],
+      "role": "urban"
+    },
+    {
+      "import": "algorithms.domains.urban.policy_compiler.policy_compiler_template",
+      "name": "policy_compiler",
+      "path": "algorithms/domains/urban/policy_compiler",
+      "reason": "plan s2 rules: compile_policy, verify_span, Gazetteer, AbstentionQueue, policy_check",
+      "required_by": [],
+      "requires": [
+        "search",
+        "similarity"
+      ],
       "role": "urban"
     },
     {
@@ -289,7 +327,7 @@
     }
   ],
   "source": {
-    "commit": "a2e5e88582205547b4b979f9d6fdb017b8859afc",
+    "commit": "156ca53033a18775afc669929220e3f035dda5f0",
     "repo": "https://github.com/Orthant-Research-Group/orchid"
   }
 }

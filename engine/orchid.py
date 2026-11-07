@@ -40,6 +40,8 @@ from algorithms.domains.urban.emissions_environment import emissions_environment
 from algorithms.domains.urban.traffic_flow import traffic_flow_template as traffic_flow  # noqa: E402
 from algorithms.domains.urban.accessibility_equity import accessibility_equity_template as accessibility_equity  # noqa: E402
 from algorithms.domains.urban.signal_control import signal_control_template as signal_control  # noqa: E402
+# enabled with hunt rounds 6-8 merged; not converged -- set clause strength by hand, don't rely on wording
+from algorithms.domains.urban.policy_compiler import policy_compiler_template as policy_compiler  # noqa: E402
 
 # core -- called directly by the plan
 from algorithms.core.ml.data_splitting import data_splitting_template as data_splitting  # noqa: E402
@@ -60,7 +62,7 @@ UNAVAILABLE = {e["name"]: e["reason"] for e in MANIFEST["held"] + MANIFEST["not_
 
 __all__ = [
     "street_network", "traffic_assignment", "travel_demand", "pedestrian_flow",
-    "emissions_environment", "traffic_flow", "accessibility_equity", "signal_control",
+    "emissions_environment", "traffic_flow", "accessibility_equity", "signal_control", "policy_compiler",
     "data_splitting", "ensembles", "multi_objective", "stochastic_optimisation",
 ]
 

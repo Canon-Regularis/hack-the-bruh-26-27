@@ -33,7 +33,7 @@ from pathlib import Path, PurePosixPath
 
 # ------------------------------------------------------------------- config (edit here) ---
 ORCHID_REPO = "https://github.com/Orthant-Research-Group/orchid"
-ORCHID_COMMIT = "a2e5e88582205547b4b979f9d6fdb017b8859afc"  # origin/main, merge of PR #1
+ORCHID_COMMIT = "156ca53033a18775afc669929220e3f035dda5f0"  # origin/main, merge of PR #7 (policy_compiler round 8)
 FILES_PER_MODULE = ("__init__.py", "README.md", "{name}_template.py")
 
 URBAN = "algorithms/domains/urban/"
@@ -48,6 +48,9 @@ URBAN_READY = {
     URBAN + "traffic_flow": "hardened; not called by the plan",
     URBAN + "accessibility_equity": "hardened; not called by the plan",
     URBAN + "signal_control": "hardened; not called by the plan",
+    # Enabled by decision on 2026-11-07 with hunt rounds 6-8 merged (ORCHID #4, #6, #7). Not converged:
+    # classify_wording (the wording_ambiguous gate) still finds bugs, so set clause strength by hand.
+    URBAN + "policy_compiler": "plan s2 rules: compile_policy, verify_span, Gazetteer, AbstentionQueue, policy_check",
 }
 
 # Core modules the plan calls directly.
@@ -60,7 +63,6 @@ CORE_EXTRA = {
 
 # Never copied.  Importing one through engine.orchid raises ImportError with this reason.
 HELD = {
-    URBAN + "policy_compiler": "pending: parser rewritten, one more confirmation bug-hunt round advised (URBAN_PICKUP.md)",
     URBAN + "public_voice": "pending: not converged, bug-hunt round 5 still found 5 template bugs (URBAN_PICKUP.md)",
     URBAN + "network_design": "pending: not converged, bug-hunt round 3 still found 4 template bugs (URBAN_PICKUP.md)",
     URBAN + "resilience": "pending: not converged, bug-hunt round 7 still found 4 template bugs (URBAN_PICKUP.md)",
