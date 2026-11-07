@@ -1,0 +1,143 @@
+import csv
+import json
+
+import pytest
+
+from engine.orchid import street_network as sn
+from src.graph.street_lookup import build_street_lookup
+from src.rules import bind_rules as br
+
+SOURCES = {"etro": "The Council ... QUOTE ... with exemptions."}
+
+
+def clause(cid, street, restriction, **overrides):
+    return {"clause_id": cid, "document_id": "etro", "page": 1, "quote": "QUOTE", "street": street,
+            "restriction": restriction, "times": "at any time", "exemptions": [], **overrides}
+
+
+@pytest.fixture(scope="module")
+def graph():
+    g = sn.RoadGraph()
+    for nid, lon in enumerate([-3.2010, -3.2000, -3.1990, -3.1980, -3.1970]):
+        g.add_node(nid, lat=55.9490, lon=lon)
+    g.add_node(5, lat=55.9500, lon=-3.1980)
+    g.add_node(6, lat=55.9510, lon=-3.1980)
+    no_cars = {"way_id": 1, "motor_vehicle": "no"}
+    g.add_edge(1, 2, oneway=False, street_name="Lawnmarket", osm=no_cars)                 # 0, 1
+    g.add_edge(2, 3, oneway=False, street_name="Lawnmarket", osm=no_cars)                 # 2, 3
+    g.add_edge(0, 1, oneway=False, street_name="Castlehill", osm={"way_id": 2})           # 4, 5
+    g.add_edge(3, 4, oneway=False, street_name="Bank Street",
+               osm={"way_id": 3, "motor_vehicle": "yes", "access": "no"})                 # 6, 7
+    g.add_edge(3, 5, street_name="Upper Bow", osm={"way_id": 4, "oneway": "yes"})         # 8
+    g.add_edge(5, 6, oneway=False, street_name="Victoria Street", highway_class="pedestrian",
+               osm={"way_id": 5})                                                         # 9, 10
+    return g
+
+
+@pytest.fixture(scope="module")
+def lookup(graph):
+    return build_street_lookup(graph)
+
+
+APPLIED = [
+    clause("lawn-1way", "Lawnmarket", "one_way", from_street="Castlehill", to_street="Bank Street"),
+    clause("bow-1way", "Upper Bow", "one_way", from_street="Bank Street", to_street="Victoria Street"),
+    clause("lawn-cars", "Lawnmarket", "no_motor_vehicles"),
+    clause("bank-cars", "Bank Street", "no_motor_vehicles"),
+    clause("castle-cars", "Castlehill", "no_motor_vehicles"),
+    clause("vic-ped", "Victoria St", "pedestrian_only"),
+]
+ABSTAINED = [
+    (clause("no-source", "Lawnmarket", "no_motor_vehicles", document_id="tro-99"), "source 'tro-99' is not cached"),
+    (clause("bad-quote", "Lawnmarket", "no_motor_vehicles", quote="QUOTED"), "quote is not word for word in its source"),
+    (clause("bad-type", "Lawnmarket", "no_entry"), "unknown restriction 'no_entry'"),
+    (clause("exempt", "Lawnmarket", "no_motor_vehicles", exemptions="unspecified"), "exemptions are not listed"),
+    (clause("timed", "Lawnmarket", "no_motor_vehicles", times="8am-6pm"),
+     "time-limited (8am-6pm), but flags and OSM tags are all-day"),
+    (clause("no-dir", "Lawnmarket", "one_way"), "one-way clause needs from_street and to_street"),
+    (clause("no-street", "Johnston Terrace", "no_motor_vehicles"), "street 'Johnston Terrace' not found in the graph"),
+    (clause("no-meet", "Lawnmarket", "one_way", from_street="Victoria Street", to_street="Bank Street"),
+     "street doesn't meet 'Victoria Street'"),
+]
+
+
+@pytest.mark.parametrize("c, reason", ABSTAINED[:6])
+def test_abstain_reason(c, reason):
+    assert br.abstain_reason(c, SOURCES) == reason
+
+
+def test_applicable_clauses_have_no_abstain_reason():
+    assert all(br.abstain_reason(c, SOURCES) is None for c in APPLIED)
+
+
+def eids(edges):
+    return [e.eid for e in edges]
+
+
+def test_bind_returns_the_street_in_both_directions(graph, lookup):
+    assert eids(br.bind(APPLIED[2], graph, lookup)) == [0, 1, 2, 3]
+
+
+def test_bind_one_way_returns_edges_against_the_allowed_direction(graph, lookup):
+    assert eids(br.bind(APPLIED[0], graph, lookup)) == [1, 3]
+
+
+def test_bind_one_way_already_right_on_osm_returns_nothing(graph, lookup):
+    assert br.bind(APPLIED[1], graph, lookup) == []
+
+
+@pytest.mark.parametrize("c, reason", ABSTAINED[6:])
+def test_bind_raises_with_reason(graph, lookup, c, reason):
+    with pytest.raises(br.BindError, match=reason):
+        br.bind(c, graph, lookup)
+
+
+@pytest.mark.parametrize("restriction, eid, expected", [
+    ("no_motor_vehicles", 0, True),    # motor_vehicle=no
+    ("no_motor_vehicles", 6, False),   # motor_vehicle=yes beats access=no
+    ("no_motor_vehicles", 4, False),   # no tags on a car road
+    ("no_motor_vehicles", 9, True),    # pedestrian street bans cars by default
+    ("pedestrian_only", 9, True),
+    ("pedestrian_only", 0, False),
+    ("one_way", 1, False),             # a bound one-way edge is traffic OSM allows against the rule
+])
+def test_osm_agrees(graph, restriction, eid, expected):
+    assert br.osm_agrees(restriction, graph.edge(eid)) is expected
+
+
+def test_check_clauses(graph):
+    report = br.check_clauses(APPLIED + [c for c, _ in ABSTAINED], SOURCES, graph)
+    assert report.applied == [c["clause_id"] for c in APPLIED]
+    assert report.wrong_on_osm == ["lawn-1way", "bank-cars", "castle-cars"]
+    assert report.abstained == [(c["clause_id"], reason) for c, reason in ABSTAINED]
+    assert report.bound == {"one_way": {"1", "3"}, "no_motor_vehicles": {"0", "1", "2", "3", "4", "5", "6", "7"},
+                            "pedestrian_only": {"9", "10"}}
+
+
+def test_restriction_flags_one_row_per_directed_edge(graph):
+    rows = br.restriction_flags(br.check_clauses(APPLIED, SOURCES, graph).bound, graph)
+    assert [r["edge_id"] for r in rows] == [str(e) for e in graph.edges]
+    assert rows[1] == {"edge_id": "1", "no_motor_vehicles": 1, "one_way": 1, "pedestrian_only": 0}
+    assert rows[0] == {"edge_id": "0", "no_motor_vehicles": 1, "one_way": 0, "pedestrian_only": 0}
+    assert rows[8] == {"edge_id": "8", "no_motor_vehicles": 0, "one_way": 0, "pedestrian_only": 0}
+
+
+def test_main_writes_flags_and_prints_summary(graph, tmp_path, monkeypatch, capsys):
+    clauses_path, sources_dir = tmp_path / "clauses.json", tmp_path / "sources"
+    sources_dir.mkdir()
+    clauses_path.write_text(json.dumps(APPLIED + [ABSTAINED[3][0]]))
+    (sources_dir / "etro.txt").write_text(SOURCES["etro"])
+    monkeypatch.setattr(br, "CLAUSES_PATH", clauses_path)
+    monkeypatch.setattr(br, "SOURCES_DIR", sources_dir)
+    monkeypatch.setattr(br, "FLAGS_PATH", tmp_path / "rules" / "restriction_flags.csv")
+    monkeypatch.setattr(br, "load_graph", lambda: (graph, None))
+
+    br.main()
+
+    out = capsys.readouterr().out
+    assert out.startswith("3 of 6 legal restrictions missing or wrong on OSM\n")
+    assert "1 abstained:\n  exempt: exemptions are not listed" in out
+    with (tmp_path / "rules" / "restriction_flags.csv").open() as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == graph.num_edges and rows[1] == {"edge_id": "1", "no_motor_vehicles": "1", "one_way": "1",
+                                                        "pedestrian_only": "0"}
