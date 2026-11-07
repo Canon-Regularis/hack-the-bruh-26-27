@@ -188,26 +188,18 @@ def test_street_names_cover_every_directed_edge_with_string_ids(graph):
 
 
 def test_load_graph_keeps_signal_and_crossing_nodes_through_cleaning(osm_path, tmp_path):
-    graph, index = load_graph(osm_path, tmp_path)
+    graph = load_graph(osm_path, tmp_path)
     assert {2, 3} <= set(graph.nodes) and graph.node(3).signalised
-    nearest = graph.edge(index.nearest(*graph.node(3).xy).eid)
-    assert 3 in (nearest.u, nearest.v)
 
 
 def test_load_graph_writes_hand_off_files_then_reloads_without_rebuilding(osm_path, osm, tmp_path, monkeypatch):
     out = tmp_path / "graph"
-    graph, _ = load_graph(osm_path, out)
+    graph = load_graph(osm_path, out)
     assert sorted(p.name for p in out.iterdir()) == ["bus_stops.json", "graph.pkl", "street_names.json"]
     assert json.loads((out / "street_names.json").read_text()) == street_names(graph)
     assert json.loads((out / "bus_stops.json").read_text()) == bus_stops(osm)
     assert same_graph(pickle.loads((out / "graph.pkl").read_bytes()), graph)
 
     monkeypatch.setattr("src.graph.build_graph.read_osm", lambda _: pytest.fail("rebuilt"))
-    reloaded, _ = load_graph(osm_path, out)
+    reloaded = load_graph(osm_path, out)
     assert same_graph(reloaded, graph)
-
-
-def test_load_graph_index_can_be_limited_to_a_mode(osm_path, tmp_path):
-    graph, index = load_graph(osm_path, tmp_path, mode="car")
-    nearest = graph.edge(index.nearest(*graph.node(11).xy).eid)
-    assert nearest.highway_class != "footway" and "car" in nearest.modes_permitted

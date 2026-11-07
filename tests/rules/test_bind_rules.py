@@ -130,7 +130,7 @@ def test_main_writes_flags_and_prints_summary(graph, tmp_path, monkeypatch, caps
     monkeypatch.setattr(br, "CLAUSES_PATH", clauses_path)
     monkeypatch.setattr(br, "SOURCES_DIR", sources_dir)
     monkeypatch.setattr(br, "FLAGS_PATH", tmp_path / "rules" / "restriction_flags.csv")
-    monkeypatch.setattr(br, "load_graph", lambda: (graph, None))
+    monkeypatch.setattr(br, "load_graph", lambda: graph)
 
     br.main()
 
