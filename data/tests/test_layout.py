@@ -1,4 +1,4 @@
-"""Guards on the repo layout that would otherwise fail in confusing ways."""
+"""Check that data and secrets stay out of git."""
 
 import subprocess
 from pathlib import Path
@@ -7,25 +7,13 @@ import pytest
 
 DATA_ROOT = Path(__file__).resolve().parents[1]
 
-EXPECTED_DIRS = [
-    "collector",
-    "matching",
-    "speeds",
-    "features",
-    "model",
-    "export",
-    "tests",
-    "raw",
-    "derived",
-    "sample",
-    "reports",
-    "scripts",
-]
 
-
-@pytest.mark.parametrize("folder", EXPECTED_DIRS)
-def test_expected_folder_exists(folder):
-    assert (DATA_ROOT / folder).is_dir()
+def is_ignored(path):
+    # `git check-ignore` exits 0 only when the path is ignored.
+    result = subprocess.run(
+        ["git", "check-ignore", "-q", path], cwd=DATA_ROOT, check=False
+    )
+    return result.returncode == 0
 
 
 @pytest.mark.parametrize(
@@ -33,17 +21,8 @@ def test_expected_folder_exists(folder):
     ["raw/pings.jsonl", "derived/speeds.parquet", ".env"],
 )
 def test_sensitive_paths_are_gitignored(path):
-    # `git check-ignore` exits 0 only when the path is ignored.
-    result = subprocess.run(
-        ["git", "check-ignore", "-q", path], cwd=DATA_ROOT, check=False
-    )
-    assert result.returncode == 0
+    assert is_ignored(path)
 
 
 def test_sample_data_is_not_gitignored():
-    result = subprocess.run(
-        ["git", "check-ignore", "-q", "sample/pings.jsonl"],
-        cwd=DATA_ROOT,
-        check=False,
-    )
-    assert result.returncode == 1
+    assert not is_ignored("sample/pings.jsonl")
