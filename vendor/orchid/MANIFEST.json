@@ -31,6 +31,9 @@
     "algorithms/domains/urban/pedestrian_flow/README.md": "84f5882bf2512d78a8ac9e2777836b3cde145f62",
     "algorithms/domains/urban/pedestrian_flow/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
     "algorithms/domains/urban/pedestrian_flow/pedestrian_flow_template.py": "7357887cb222cddee0ae804f30d70f965efb107d",
+    "algorithms/domains/urban/public_voice/README.md": "32d100324760706e2ec13fd13e5260335e021c53",
+    "algorithms/domains/urban/public_voice/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "algorithms/domains/urban/public_voice/public_voice_template.py": "9f800eab15cf8e9e0d6dafb7166d870b1c158a25",
     "algorithms/domains/urban/signal_control/README.md": "fc0a5c87ccf79f01aa4e75bfbcb94c40d5ec5677",
     "algorithms/domains/urban/signal_control/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
     "algorithms/domains/urban/signal_control/signal_control_template.py": "43bd51c048cc8a0632aea87fe377a038cb34bf81",
@@ -58,6 +61,7 @@
       "name": "probabilistic",
       "optional_import_skipped_by": [
         "emissions_environment",
+        "public_voice",
         "travel_demand"
       ],
       "path": "algorithms/core/probabilistic",
@@ -80,12 +84,6 @@
       "optional_import_skipped_by": [],
       "path": "algorithms/domains/urban/policy_compiler",
       "reason": "pending: parser rewritten, one more confirmation bug-hunt round advised (URBAN_PICKUP.md)"
-    },
-    {
-      "name": "public_voice",
-      "optional_import_skipped_by": [],
-      "path": "algorithms/domains/urban/public_voice",
-      "reason": "pending: not converged, bug-hunt round 5 still found 5 template bugs (URBAN_PICKUP.md)"
     },
     {
       "name": "resilience",
@@ -182,6 +180,15 @@
       "name": "pedestrian_flow",
       "path": "algorithms/domains/urban/pedestrian_flow",
       "reason": "plan s2: crossing_delay, fruin_los",
+      "required_by": [],
+      "requires": [],
+      "role": "urban"
+    },
+    {
+      "import": "algorithms.domains.urban.public_voice.public_voice_template",
+      "name": "public_voice",
+      "path": "algorithms/domains/urban/public_voice",
+      "reason": "plan s2/s4 (NOT converged, see comment): ingest_concerns, classify_theme, find_near_duplicates, concern_field, local_getis_ord, hotspot_clusters, voice_objective, voice_improvement",
       "required_by": [],
       "requires": [],
       "role": "urban"
@@ -289,7 +296,7 @@
     }
   ],
   "source": {
-    "commit": "a2e5e88582205547b4b979f9d6fdb017b8859afc",
+    "commit": "127f57e8a9b354bad806bcb4e79036a2d5f8cc91",
     "repo": "https://github.com/Orthant-Research-Group/orchid"
   }
 }

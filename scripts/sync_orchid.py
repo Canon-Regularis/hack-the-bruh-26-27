@@ -33,7 +33,7 @@ from pathlib import Path, PurePosixPath
 
 # ------------------------------------------------------------------- config (edit here) ---
 ORCHID_REPO = "https://github.com/Orthant-Research-Group/orchid"
-ORCHID_COMMIT = "a2e5e88582205547b4b979f9d6fdb017b8859afc"  # origin/main, merge of PR #1
+ORCHID_COMMIT = "127f57e8a9b354bad806bcb4e79036a2d5f8cc91"  # orchid fix/urban/public-voice-round7 (PR #8: round 7 merged with main 156ca53)
 FILES_PER_MODULE = ("__init__.py", "README.md", "{name}_template.py")
 
 URBAN = "algorithms/domains/urban/"
@@ -48,6 +48,12 @@ URBAN_READY = {
     URBAN + "traffic_flow": "hardened; not called by the plan",
     URBAN + "accessibility_equity": "hardened; not called by the plan",
     URBAN + "signal_control": "hardened; not called by the plan",
+    # Vendored BEFORE convergence at the team's request (2026-11-07): hunt rounds 6 and 7 found and
+    # fixed 5 and 4 template bugs (history 12, 8, 5, 5, 5, 5, 4), so a later round may find more.
+    # Sanity-pin every number shown from it.  Round 6 is ORCHID PR #5 (merged); round 7 is PR #8.
+    URBAN + "public_voice": (
+        "plan s2/s4 (NOT converged, see comment): ingest_concerns, classify_theme, find_near_duplicates, "
+        "concern_field, local_getis_ord, hotspot_clusters, voice_objective, voice_improvement"),
 }
 
 # Core modules the plan calls directly.
@@ -61,7 +67,6 @@ CORE_EXTRA = {
 # Never copied.  Importing one through engine.orchid raises ImportError with this reason.
 HELD = {
     URBAN + "policy_compiler": "pending: parser rewritten, one more confirmation bug-hunt round advised (URBAN_PICKUP.md)",
-    URBAN + "public_voice": "pending: not converged, bug-hunt round 5 still found 5 template bugs (URBAN_PICKUP.md)",
     URBAN + "network_design": "pending: not converged, bug-hunt round 3 still found 4 template bugs (URBAN_PICKUP.md)",
     URBAN + "resilience": "pending: not converged, bug-hunt round 7 still found 4 template bugs (URBAN_PICKUP.md)",
     URBAN + "green_infrastructure": (
