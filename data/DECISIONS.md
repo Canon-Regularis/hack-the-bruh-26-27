@@ -10,6 +10,7 @@ Times are local (GMT) on Saturday 7 November 2026, unless stated.
 | 16:59 | Adish | **Do not commit anything until told to.** This overrides kickoff rule 8 (commit at the end of every task and hourly). |
 | 17:14 | Adish | Commit the workflow part and push. Read as covering the Task 0 setup only, on branch `signal`. Later work stays uncommitted until Adish says otherwise. |
 | 17:40 | Adish | **Only do tasks owned by Adish:** Task 0, the speeds half of Task 3, and Tasks 4, 5 and 7. Task 1 was started by mistake and undone, because Matthew Li owns it. |
+| 18:15 | Adish | **Do not drop ping pairs.** Keep every pair. Dwell pairs stay in the output, with their time stored in `dwell_seconds`. The speed still leaves dwell out, as v2 requires. This changes how Q3 is applied, not its 20 m and 10 m rule. |
 
 ## Questions
 

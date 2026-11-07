@@ -171,3 +171,79 @@ Waiting on the answers the kickoff requires before building. Nothing has been bu
 ### Layout update (18:00): Signal work moved into `data/`
 
 Adish asked for `data/` to hold what `signal/` held. Older entries above still say `signal/`, so read those paths as `data/`. `signal/data/raw`, `derived` and `sample` are now `data/raw`, `data/derived` and `data/sample`. Run checks with `data/scripts/check.sh`. Q3 to Q6 are answered in `DECISIONS.md`.
+
+### Task 3, speeds part (owner: Adish), DONE on synthetic data
+
+Built and tested on synthetic rows only. Real speeds are blocked on Matthew Li's matching, the real `orchid`, the RoadGraph and a bus data source.
+
+**What was achieved:**
+- Added the hand-off table `PingPair` and a `match_pings` skeleton that raises until Matthew Li's code replaces it.
+- Added the dwell rule from Q3: moved under 10 m and within 20 m of a stop.
+- Added the edge-speed table, using total metres over total seconds from Q4, with entry-time 15-minute bins in UTC.
+
+**Files created or changed:** `matching/table.py`, `speeds/dwell.py`, `speeds/edge_speeds.py`, `speeds/synthetic.py`, `scripts/synthetic_speed_check.py`, `tests/test_edge_speeds.py`, `PROGRESS.md`. None committed.
+
+**How to run it:**
+```
+data/scripts/check.sh
+python3 data/scripts/synthetic_speed_check.py
+```
+
+**Checks:** `data/scripts/check.sh`: lint passed, 59 passed, 0 failed, smoke skipped (only one working stage), exit 0.
+
+Synthetic check, true speed 18.00 km/h, stop on `edge_3`:
+
+| Case | Edges without the stop | Edge with the stop |
+|---|---|---|
+| Dwell lines up with pings, no noise | 18.00 km/h | 18.00 km/h |
+| Dwell falls between pings, 2 m GPS noise | 18.00 km/h | 12.00 km/h (300 m in 90 s) |
+
+**Proposed tolerance:** within 1% on edges without a stop. On an edge with a stop, up to one ping interval of dwell can remain, so the test allows 12 to 18 km/h in this case.
+
+**Not done, because the inputs do not exist:** the run on the fixed sample, time per 1,000 pings, GeoJSON traces, the full GPS-noise test through `map_match`, and fetching OSM stops, which needs the agreed study area.
+
+**Review pass findings:**
+- Units: metres and seconds throughout, converted to km/h once at the end. No problems.
+- Timestamps: `PingPair` accepted any timezone. Fixed: it now rejects anything not in UTC, with a test. Its docstring says times are GPS fix times, not poll times.
+- Edge IDs: an edge missing from the street lookup now raises. Matching must use the same IDs.
+- Bin boundaries: one function, `bin_start`, sets every bin. Later stages must reuse it.
+
+**Numbers produced:** all synthetic, from `python3 data/scripts/synthetic_speed_check.py`, plus 59 passed from `data/scripts/check.sh`.
+
+**Assumptions made:**
+- `PingPair` is our assumed format until Matthew Li's code exists (Q5).
+- A pair counts as near a stop if either ping is within 20 m.
+- Consecutive pairs join only if one starts exactly when the last ended, so a missing ping starts a new traversal.
+
+**Questions or blockers waiting on a person:** Matthew Li to confirm the `PingPair` format when matching is ready.
+
+**Risks noticed:**
+- Edges with stops can read low. When a dwell falls between pings, part of it sits inside pairs where the bus also moved, so the rule cannot remove it. Here that took the stop's edge from 18 to 12 km/h.
+- A dwell shorter than the ping interval never gives a stationary pair, so none of it is removed.
+- The 10 m rule is per ping pair, so its meaning depends on the ping interval, which is unknown until the data source is chosen.
+
+**Next task per v2 (not started):** Task 4, feature table and leakage firewall.
+
+### Task 3 speeds update (18:15): no ping pairs dropped
+
+Adish asked to keep every ping pair. Dwell pairs now stay in the output, and the table has a new `dwell_seconds` column. The speed still leaves dwell out, and `total_seconds + dwell_seconds` gives the full time. A row with only dwell has an empty speed, which Task 4 must handle. `data/scripts/check.sh`: lint passed, 61 passed, 0 failed, smoke skipped, exit 0. Not committed.
+
+### Task 3 speeds review (18:40): 4 bugs fixed, design decisions checked
+
+`data/scripts/check.sh`: lint passed, 64 tests passed, 0 failed, smoke skipped, exit 0. Each fix below had a test that failed first.
+
+**Bugs fixed:**
+- A bus that waited at a stop and then moved was binned at arrival time, so a 40-minute wait put its speed in the wrong bin. It now bins by when the bus first moved.
+- A bus seen only dwelling counted as a traversal and a vehicle. Both counts now cover moving buses only.
+- One vehicle with two source labels could merge into one traversal, so `synthetic` and `observed` could mix. Sources now stay apart.
+- Negative edge distances were accepted. `PingPair` now rejects them.
+
+**Decisions checked and kept:** total metres over total seconds; time shared by distance within a pair; dwell metres left out along with dwell time, so distance and time come from the same pairs; a gap in pings starts a new traversal; bins by entry time; an unknown edge raises an error.
+
+**Risks left open, none changed without a decision:**
+- GPS noise weakens the 10 m rule. Share of stationary pairs recognised as dwell, from `python3 data/scripts/synthetic_speed_check.py` (synthetic, 200 runs each): 2 m noise 100.0%, 5 m noise 79.2%, 10 m noise 34.5%. A missed dwell counts as moving time, so the edge reads low. Map-matched positions should help, but that is untested.
+- A parked bus away from a stop, such as at a depot or layover, counts as queuing. With 0 metres and long time, it can pull a row's speed close to 0.
+- A 20 m radius also catches buses queuing at lights near a stop, or opposite a stop across the road.
+- A long dwell partway along an edge keeps both moving parts in the entry bin.
+
+**Status:** the Task 3 speeds code is complete on synthetic data. The real-data checks wait on matching, `orchid`, the RoadGraph and a data source.
