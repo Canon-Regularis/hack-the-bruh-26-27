@@ -134,8 +134,9 @@ def _write_atomic(path: Path, data: bytes) -> None:
     tmp.replace(path)
 
 
-def load_graph(osm_path: Path = OSM_PATH, graph_dir: Path = GRAPH_DIR) -> tuple[sn.RoadGraph, sn.EdgeIndex]:
-    """Return the frozen graph and its edge lookup index.
+def load_graph(osm_path: Path = OSM_PATH, graph_dir: Path = GRAPH_DIR, *,
+               mode: str | None = None) -> tuple[sn.RoadGraph, sn.EdgeIndex]:
+    """Return the frozen graph and an edge lookup index over the edges open to mode (all when None).
 
     Loads graph_dir/graph.pkl if it exists. Otherwise builds and cleans the graph, then
     writes street_names.json, bus_stops.json and finally graph.pkl, so edge ids never
@@ -152,7 +153,7 @@ def load_graph(osm_path: Path = OSM_PATH, graph_dir: Path = GRAPH_DIR) -> tuple[
         _write_atomic(graph_dir / "street_names.json", json.dumps(street_names(graph)).encode())
         _write_atomic(graph_dir / "bus_stops.json", json.dumps(bus_stops(osm)).encode())
         _write_atomic(frozen, pickle.dumps(graph, protocol=pickle.HIGHEST_PROTOCOL))
-    return graph, sn.EdgeIndex(graph)
+    return graph, sn.EdgeIndex(graph, mode=mode)
 
 
 if __name__ == "__main__":

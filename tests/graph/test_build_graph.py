@@ -205,3 +205,9 @@ def test_load_graph_writes_hand_off_files_then_reloads_without_rebuilding(osm_pa
     monkeypatch.setattr("src.graph.build_graph.read_osm", lambda _: pytest.fail("rebuilt"))
     reloaded, _ = load_graph(osm_path, out)
     assert same_graph(reloaded, graph)
+
+
+def test_load_graph_index_can_be_limited_to_a_mode(osm_path, tmp_path):
+    graph, index = load_graph(osm_path, tmp_path, mode="car")
+    nearest = graph.edge(index.nearest(*graph.node(11).xy).eid)
+    assert nearest.highway_class != "footway" and "car" in nearest.modes_permitted
