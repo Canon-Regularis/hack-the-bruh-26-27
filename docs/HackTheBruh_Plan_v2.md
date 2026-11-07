@@ -156,19 +156,29 @@ Pairs, per our rule (never solo). **T+0 was Sat 16:40**, so T+3 is 19:40, T+6 is
 
 ### Signal tasks
 
-Status at Sat 20:50, from the repo.
+Status at Sat 21:05, from the repo.
 
 | Owner | Task | Target | Status |
 |---|---|---|---|
-| Matthew Li | Collector | 17:10 | Code merged. Not confirmed running. Site owner's OK not confirmed. |
-| Matthew Li | Ping plot and 20-minute sample | 18:00 | Plot on `feat/ping-plot`, not merged. No sample yet. |
-| Matthew Li | Map matching | 19:40 | Nothing pushed yet. A real run needs the road graph. |
+| Matthew Li | Collector | 17:10 | Code merged. Some data collected, going by the ping plot branch. Overnight run and site owner's OK not confirmed. |
+| Matthew Li | Ping plot and 20-minute sample | 18:00 | Plot on `feat/ping-plot`, with no PR yet. No sample on `main`. |
+| Matthew Li | Map matching | 19:40 | Nothing pushed yet. The road graph is now on `main`, so this can start. |
 | Matthew Li | Prediction JSON for the frontend | 01:40 | Not started. Needs the model. |
 | Adish | Repo setup and library check | T+0 | Done. |
-| Adish | Dwell stripping and edge-speed table | 19:40 | Merged and tested on synthetic data only. Dwell rule fix still to do. |
+| Adish | Dwell stripping and edge-speed table | 19:40 | Code merged, including the dwell rule fix. Tested on synthetic data only. Real-data run and coverage report still to do. |
 | Adish | Features, leakage firewall, baselines, model, validation | 22:40 | Not started. Real results need matched data. |
 | Adish | Assignment vs observed speeds | 01:40 | Not started. Needs Engine's `user_equilibrium` outputs. |
 | Adish | Morning retrain, final numbers, results slide | Sun morning | Not started. |
+
+**Next for Adish:** the feature table and leakage firewall, starting with the firewall test. Decide whether to build it without restriction flags, concern intensity and DfT AADF, which do not exist yet. Open a follow-up issue for the edge-speed real-data run and coverage report.
+
+**What Matthew Li needs from Adish:**
+
+- Confirmation of the bustimes.org OK before any overnight run.
+- A decision on whether `data/out/ping_plot.png` belongs in git, once the ping plot has a PR.
+- Later, the model output format, agreed before the prediction JSON is built.
+
+Map matching needs nothing from Adish to start. It does need the cached OSM file that `load_graph` reads.
 
 **Data needed:** a 20-minute sample is enough to build and test map matching, and the first hour gives the first edge-speed table. The model needs the overnight data.
 
