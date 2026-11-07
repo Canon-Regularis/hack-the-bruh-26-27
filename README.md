@@ -7,8 +7,8 @@ Matthew Miezaniec
 
 ## ORCHID library (vendored)
 
-The maths comes from ORCHID: 12 modules copied byte for byte into `vendor/orchid/` from ORCHID
-commit `a2e5e88`, which is pinned in `scripts/sync_orchid.py`. They use only the standard
+The maths comes from ORCHID: 13 modules copied byte for byte into `vendor/orchid/` from ORCHID
+commit `156ca53`, which is pinned in `scripts/sync_orchid.py`. They use only the standard
 library and need Python 3.8+, so there is nothing to install and no ORCHID clone to set up.
 Import them through one wrapper, and run code from the repo root (e.g.
 `python -m src.graph.build_graph`):
@@ -28,6 +28,7 @@ from engine.orchid import street_network as sn, traffic_assignment as ta
 | `ensembles` | §3 model fallback | `GradientBoostingRegressor` (no quantile loss) |
 | `multi_objective` | §4 Pareto + pick | `find_pareto_front`, `hypervolume`, `knee_point` |
 | `stochastic_optimisation` | §4 scenarios + risk | `scenario_reduction`, `conditional_value_at_risk` |
+| `policy_compiler` | §2 rules, OSM mismatch, policy check | `PolicyClause`, `Gazetteer`, `compile_policy`, `verify_span`, `policy_check`, `pareto_set` |
 | `traffic_flow`, `accessibility_equity`, `signal_control` | not used by the plan | |
 
 Each module's API docs are in its `README.md` under `vendor/orchid/algorithms/`. The test
@@ -36,8 +37,7 @@ counts in those READMEs are out of date.
 **Held back.** These raise `ImportError`, with the reason, if you import them from
 `engine.orchid`:
 
-- `policy_compiler`, `public_voice`, `network_design`, `resilience`: ORCHID's bug hunts on them
-  haven't converged.
+- `public_voice`, `network_design`, `resilience`: ORCHID's bug hunts on them haven't converged.
 - `green_infrastructure`: a min-cut-tree bug against the current core.
 - core `probabilistic`: a known erf defect.
 
@@ -48,14 +48,19 @@ To enable one once it's fixed:
 3. Run `python scripts/sync_orchid.py --orchid ../orchid`.
 4. Check a known answer (e.g. Braess 83/498 -> 92/552) before showing any number from it.
 
+**`policy_compiler` caveat.** It is enabled with hunt rounds 6-8 merged (ORCHID #4, #6, #7), but its
+hunts haven't converged. Almost every bug found was in `classify_wording`, which reads
+English wording for the `wording_ambiguous` check. Set each clause's `strength` ("hard" or
+"soft") by hand rather than trusting the wording reader, and check the abstention queue by eye.
+
 **Rules.** Never edit `vendor/`. Never put an ORCHID checkout on `sys.path` / `PYTHONPATH`.
 Import only through `engine.orchid`. `python scripts/sync_orchid.py --check` verifies the
 copy.
 
 **Gotchas.**
 
-- Plan §2's `pareto_set` lives in the held `policy_compiler`. Use
-  `multi_objective.find_pareto_front` + `knee_point` instead.
+- Plan §2's `pareto_set` lives in `policy_compiler`. `multi_objective.find_pareto_front` +
+  `knee_point` work too.
 - There is no `RoadGraph` -> `traffic_assignment` network adapter, so we write that glue
   ourselves.
 - `street_network`'s node-graph routers ignore banned turns. Use `edge_expanded_graph` /
