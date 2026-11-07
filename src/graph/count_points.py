@@ -100,8 +100,8 @@ def _write_csv(path: Path, fields: tuple[str, ...], rows: list[dict]) -> None:
 
 def main() -> None:
     """Snap the count points, write the AADF hand-off CSV and the by-eye review CSV."""
-    graph, index = load_graph(mode="car")
-    matches, dropped = snap_count_points(load_count_points(DFT_PATH), graph, index)
+    graph = load_graph()
+    matches, dropped = snap_count_points(load_count_points(DFT_PATH), graph, sn.EdgeIndex(graph, mode="car"))
     _write_csv(AADF_PATH, AADF_FIELDS, aadf_rows(matches))
     _write_csv(REVIEW_PATH, REVIEW_FIELDS, review_rows(matches, dropped))
     print(f"{len(matches)} count points matched, {len(dropped)} dropped; check {REVIEW_PATH} by eye")

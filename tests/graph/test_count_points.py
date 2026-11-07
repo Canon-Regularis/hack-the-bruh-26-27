@@ -83,7 +83,7 @@ def test_main_writes_both_csvs(dft_path, graph, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cp, "DFT_PATH", dft_path)
     monkeypatch.setattr(cp, "AADF_PATH", tmp_path / "graph" / "dft_aadf.csv")
     monkeypatch.setattr(cp, "REVIEW_PATH", tmp_path / "graph" / "dft_review.csv")
-    monkeypatch.setattr(cp, "load_graph", lambda mode=None: (graph, sn.EdgeIndex(graph, mode=mode)))
+    monkeypatch.setattr(cp, "load_graph", lambda: graph)
 
     cp.main()
 
