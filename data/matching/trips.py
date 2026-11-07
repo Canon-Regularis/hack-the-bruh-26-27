@@ -11,6 +11,11 @@ from datetime import datetime, timedelta
 
 DEFAULT_MAX_GAP_S = 300.0  # 5 minutes
 
+# The real Old Town + approaches study area, picked from the ping plot
+# (data/out/ping_plot.png). The plan's own matching-speed note calls this out
+# as part of matching's job: "keep only pings in the study area."
+DEFAULT_BBOX = {"xmin": -3.215, "ymin": 55.942, "xmax": -3.155, "ymax": 55.958}
+
 
 @dataclass(frozen=True)
 class Ping:
@@ -46,6 +51,16 @@ def pings_from_rows(rows):
             continue
         seen.setdefault((vehicle_id, time_utc), Ping(vehicle_id, time_utc, lat, lon))
     return list(seen.values())
+
+
+def filter_bbox(pings, bbox):
+    """Keep only pings inside bbox (xmin/ymin/xmax/ymax degrees). None keeps all."""
+    if bbox is None:
+        return list(pings)
+    return [
+        p for p in pings
+        if bbox["xmin"] <= p.lon <= bbox["xmax"] and bbox["ymin"] <= p.lat <= bbox["ymax"]
+    ]
 
 
 def split_trips(pings, max_gap_s=DEFAULT_MAX_GAP_S):

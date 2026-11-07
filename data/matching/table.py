@@ -1,9 +1,10 @@
 """Map matching (ALG-MVP-3): turn the collector's raw ping rows into PingPair rows.
 
 PingPair is also the hand-off format to the speeds stage. match_pings parses
-and deduplicates the collector's rows, splits them into per-vehicle trips,
-then runs street_network.map_match (Newson-Krumm HMM, solved exactly by
-Viterbi) once per trip. Each consecutive pair of matched points becomes the
+and deduplicates the collector's rows, keeps only those in the study area
+(data/matching/trips.DEFAULT_BBOX), splits what is left into per-vehicle
+trips, then runs street_network.map_match (Newson-Krumm HMM, solved exactly
+by Viterbi) once per trip. Each consecutive pair of matched points becomes the
 edges actually driven between them: the remaining stretch of the first edge,
 any edges fully crossed in between (via the library's own public
 shortest_path, the same formula its internal _route_distance uses), and the
@@ -17,7 +18,7 @@ from datetime import datetime, timedelta
 
 from engine.orchid import street_network as sn
 
-from matching.trips import pings_from_rows, split_trips
+from matching.trips import DEFAULT_BBOX, filter_bbox, pings_from_rows, split_trips
 
 SOURCES = {"observed", "synthetic"}
 MATCH_MODE = "bus"
@@ -112,7 +113,7 @@ def match_trip(graph, idx, trip):
     return pairs
 
 
-def match_pings(pings, graph=None, idx=None, *, max_gap_s=None):
+def match_pings(pings, graph=None, idx=None, *, max_gap_s=None, bbox=DEFAULT_BBOX):
     """Turn the collector's raw ping rows into PingPair rows via real map matching.
 
     pings: the collector's rows (e.g. from csv.DictReader) -- dicts with at
@@ -120,12 +121,17 @@ def match_pings(pings, graph=None, idx=None, *, max_gap_s=None):
     them. Parsed and deduplicated by (vehicle_id, time_utc) here, so the
     caller does not need to clean them first.
 
+    bbox: keep only pings inside this {xmin, ymin, xmax, ymax} box -- the real
+    Old Town study area by default, per the plan ("matching must ... keep
+    only pings in the study area"). Pass None to match everything.
+
     graph/idx: pass a RoadGraph/EdgeIndex (e.g. for a small test fixture) to
     skip loading the real frozen graph. Left unloaded when there is nothing to
     match, so an empty or trip-less `pings` never touches disk.
     """
     trip_kwargs = {} if max_gap_s is None else {"max_gap_s": max_gap_s}
-    trips = split_trips(pings_from_rows(pings), **trip_kwargs)
+    cleaned = filter_bbox(pings_from_rows(pings), bbox)
+    trips = split_trips(cleaned, **trip_kwargs)
     if not trips:
         return []
 
