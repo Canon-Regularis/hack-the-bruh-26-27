@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from matching.table import MatchingNotAvailable, PingPair, match_pings
+from matching.table import PingPair, match_pings
 from speeds.dwell import distance_m, is_dwell
 from speeds.edge_speeds import OUTPUT_COLUMNS, bin_start, build_traversals, edge_speed_table
 from speeds.synthetic import STOP_EDGE, TRUE_SPEED_KMH, synthetic_bus
@@ -37,12 +37,11 @@ def speeds_by_edge(table):
     return dict(zip(table["edge_id"], table["mean_bus_observed_speed_kmh"]))
 
 
-# --- Table format and the skeleton for map matching ---
+# --- Table format and match_pings on no input ---
 
 
-def test_matching_skeleton_raises_until_it_is_built():
-    with pytest.raises(MatchingNotAvailable):
-        match_pings([])
+def test_match_pings_is_empty_for_no_input():
+    assert match_pings([]) == []
 
 
 def test_ping_pair_rejects_times_without_a_timezone():

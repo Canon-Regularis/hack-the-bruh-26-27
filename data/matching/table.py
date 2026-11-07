@@ -1,18 +1,25 @@
-"""The hand-off table from map matching to the speeds stage.
+"""Map matching (ALG-MVP-3): turn raw pings into PingPair rows.
 
-PingPair is the format the speeds stage expects from map matching. match_pings
-is a skeleton that raises until matching is built, so it can never return
-made-up matches.
+PingPair is also the hand-off format to the speeds stage. match_pings runs
+street_network.map_match (Newson-Krumm HMM, solved exactly by Viterbi) once
+per vehicle trip, then turns each consecutive pair of matched points into the
+edges actually driven between them: the remaining stretch of the first edge,
+any edges fully crossed in between (via the library's own public
+shortest_path, the same formula its internal _route_distance uses), and the
+entered stretch of the second edge. A pair with no route between its matched
+points -- map_match's own "break" case -- is dropped rather than given a
+made-up distance.
 """
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from engine.orchid import street_network as sn
+
+from matching.trips import split_trips
+
 SOURCES = {"observed", "synthetic"}
-
-
-class MatchingNotAvailable(NotImplementedError):
-    """Raised until real map matching replaces the skeleton."""
+MATCH_MODE = "bus"
 
 
 @dataclass(frozen=True)
@@ -52,6 +59,77 @@ class PingPair:
         return (self.end_time_utc - self.start_time_utc).total_seconds()
 
 
-def match_pings(pings):
-    """Turn raw pings into PingPair rows. Skeleton until matching is built."""
-    raise MatchingNotAvailable("match_pings needs the map matching code")
+def _edge_metres(graph, c0, c1):
+    """Return (str(edge id), metres) for every edge driven between two candidates.
+
+    None if there is no route between them (map_match's "break" case).
+    """
+    ea = graph.edge(c0.eid)
+    eb = graph.edge(c1.eid)
+    if c0.eid == c1.eid:
+        metres = (c1.offset_frac - c0.offset_frac) * ea.length_m
+        if metres < 0:
+            return None  # backward along the same edge: not a real transition
+        return [(str(c0.eid), metres)]
+
+    path = sn.shortest_path(graph, ea.v, eb.u, weight="length_m", mode=MATCH_MODE)
+    if path is None:
+        return None
+
+    remaining = (1.0 - c0.offset_frac) * ea.length_m
+    entered = c1.offset_frac * eb.length_m
+    middle = [(str(eid), graph.edge(eid).length_m) for eid in path.edges]
+    return [(str(c0.eid), remaining), *middle, (str(c1.eid), entered)]
+
+
+def match_trip(graph, idx, trip):
+    """Match one vehicle's trip (>=2 Ping) and return its PingPair rows."""
+    points = [(p.lat, p.lon) for p in trip]
+    result = sn.map_match(graph, points, geographic=True, index=idx, mode=MATCH_MODE)
+
+    pairs = []
+    for i in range(len(trip) - 1):
+        edges = _edge_metres(graph, result.chosen[i], result.chosen[i + 1])
+        if edges is None:
+            continue
+        pairs.append(
+            PingPair(
+                vehicle_id=trip[i].vehicle_id,
+                start_time_utc=trip[i].time_utc,
+                end_time_utc=trip[i + 1].time_utc,
+                start_position=(trip[i].lat, trip[i].lon),
+                end_position=(trip[i + 1].lat, trip[i + 1].lon),
+                edges=edges,
+                source="observed",
+            )
+        )
+    return pairs
+
+
+def match_pings(pings, graph=None, idx=None, *, max_gap_s=None):
+    """Turn raw pings into PingPair rows via real map matching.
+
+    pings: an iterable of matching.trips.Ping, already deduplicated by
+    (vehicle_id, time_utc) -- a repeated fix would otherwise produce a
+    zero-duration pair, which PingPair rejects.
+
+    graph/idx: pass a RoadGraph/EdgeIndex (e.g. for a small test fixture) to
+    skip loading the real frozen graph. Left unloaded when there is nothing to
+    match, so an empty or trip-less `pings` never touches disk.
+    """
+    trip_kwargs = {} if max_gap_s is None else {"max_gap_s": max_gap_s}
+    trips = split_trips(pings, **trip_kwargs)
+    if not trips:
+        return []
+
+    if graph is None:
+        from src.graph.build_graph import load_graph
+
+        graph = load_graph()
+    if idx is None:
+        idx = sn.EdgeIndex(graph, mode=MATCH_MODE)
+
+    pairs = []
+    for trip in trips:
+        pairs.extend(match_trip(graph, idx, trip))
+    return pairs
