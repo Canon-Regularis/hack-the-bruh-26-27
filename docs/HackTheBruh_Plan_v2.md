@@ -73,7 +73,7 @@ One pitch, three rubrics:
 | Step | Library call | Glue we write |
 |---|---|---|
 | Graph | `street_network.RoadGraph`, `clean_network`, `EdgeIndex` | OSM → RoadGraph adapter (~80 lines) |
-| Bus pings → edge speeds | `street_network.map_match` (Newson–Krumm HMM, Viterbi) | Collector; per-vehicle ping sequences; traversal speed per edge per 15-min bin; separate dwell at stops (moved under 10 m and within 20 m of an OSM bus stop): keep every ping pair, store dwell time apart, leave it out of the speed |
+| Bus pings → edge speeds | `street_network.map_match` (Newson–Krumm HMM, Viterbi) | Collector; per-vehicle ping sequences with repeated fixes removed; traversal speed per edge per 15-min bin; separate dwell at stops (moved under 10 m and within 20 m of an OSM bus stop): keep every ping pair, store dwell time apart, leave it out of the speed |
 | Rules | `policy_compiler.compile_policy`, `verify_span`, `Gazetteer`, `parse_predicate`, `AbstentionQueue`, `policy_check` | Gazetteer from OSM street names; ~15 hand-authored `PolicyClause`s |
 | OSM mismatch | `CompiledFixings.to_dict()` | Compare compiled prohibitions with OSM `access` / `motor_vehicle` tags on the bound edges |
 | Complaints | `public_voice.ingest_concerns`, `classify_theme`, `find_near_duplicates`, `concern_field`, `local_getis_ord`, `hotspot_clusters` | Loader for published material |
@@ -137,7 +137,7 @@ $$s_e^j = \sum_i \mathrm{sev}_i\, K\big(\mathrm{dist}(e,\mathrm{loc}_i)\big)\,\m
 
 ## 7. Team and timeline
 
-Pairs, per our rule (never solo). Clock starts at **T+0 = now**; adjust checkpoints to the real deadline.
+Pairs, per our rule (never solo). **T+0 was Sat 16:40**, so T+3 is 19:40, T+6 is 22:40 and T+9 is 01:40. Hacking ends Sun 12:00, we submit by 11:30, and feature freeze is 09:00.
 
 | Pair | Owns |
 |---|---|
@@ -153,6 +153,26 @@ Pairs, per our rule (never solo). Clock starts at **T+0 = now**; adjust checkpoi
 | T+9 – 12 | Sleep in shifts; collector keeps running | FastAPI over precomputed JSON; MapLibre: rules, heatmap, speed (observed solid / predicted hatched), Pareto scatter → map diff |
 | Morning | Retrain on the full night's data; final numbers | Integrate results; policy-check panel |
 | **Deadline − 3h** | **Feature freeze.** Results slide, pitch, rehearse ×3 | Same |
+
+### Signal tasks
+
+Status at Sat 20:50, from the repo.
+
+| Owner | Task | Target | Status |
+|---|---|---|---|
+| Matthew Li | Collector | 17:10 | Code merged. Not confirmed running. Site owner's OK not confirmed. |
+| Matthew Li | Ping plot and 20-minute sample | 18:00 | Plot on `feat/ping-plot`, not merged. No sample yet. |
+| Matthew Li | Map matching | 19:40 | Nothing pushed yet. A real run needs the road graph. |
+| Matthew Li | Prediction JSON for the frontend | 01:40 | Not started. Needs the model. |
+| Adish | Repo setup and library check | T+0 | Done. |
+| Adish | Dwell stripping and edge-speed table | 19:40 | Merged and tested on synthetic data only. Dwell rule fix still to do. |
+| Adish | Features, leakage firewall, baselines, model, validation | 22:40 | Not started. Real results need matched data. |
+| Adish | Assignment vs observed speeds | 01:40 | Not started. Needs Engine's `user_equilibrium` outputs. |
+| Adish | Morning retrain, final numbers, results slide | Sun morning | Not started. |
+
+**Data needed:** a 20-minute sample is enough to build and test map matching, and the first hour gives the first edge-speed table. The model needs the overnight data.
+
+**Prediction JSON:** fit on all observed data, predict every edge and 15-minute bin with no bus observation, and flag each value as observed or predicted. It also gives the headline figure: X% of street-time has no direct observation, predicted with error Y. Signal and Engine still need to agree the JSON format, including how the map gets each street's geometry.
 
 ### Kill switches
 
