@@ -17,7 +17,7 @@ OUT_PATH = Path(__file__).resolve().parent.parent / "data" / "derived" / "betwee
 
 
 def main():
-    graph, _ = load_graph()
+    graph = load_graph()
     started = time.monotonic()
     values = sampled_betweenness(graph)
     seconds = time.monotonic() - started

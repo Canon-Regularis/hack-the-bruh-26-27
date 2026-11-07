@@ -157,7 +157,7 @@ def restriction_flags(bound: dict[str, set[str]], graph: sn.RoadGraph) -> list[d
 
 def main() -> None:
     """Bind every clause, write the flags CSV, and print the OSM mismatch count and abstained clauses."""
-    graph, _ = load_graph()
+    graph = load_graph()
     clauses = load_clauses(CLAUSES_PATH)
     sources = {doc: path.read_text(encoding="utf-8") for doc in {c["document_id"] for c in clauses}
                if (path := SOURCES_DIR / f"{doc}.txt").exists()}
