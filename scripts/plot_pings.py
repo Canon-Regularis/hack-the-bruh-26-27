@@ -8,9 +8,9 @@ surrounding roads, which is exactly where diverted traffic goes.
 This only suggests a tight bbox around every point seen so far -- it is not
 the Old Town study-area bbox itself. Pick that by eye from the plot.
 
-Usage:
+Usage (from the repo root):
     python3 scripts/plot_pings.py
-    python3 scripts/plot_pings.py --raw raw/pings.csv --out out/ping_plot.png
+    python3 scripts/plot_pings.py --raw data/raw/pings.csv --out data/out/ping_plot.png
 """
 
 import argparse
@@ -22,8 +22,9 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-DEFAULT_RAW = Path(__file__).resolve().parent.parent / "raw" / "pings.csv"
-DEFAULT_OUT = Path(__file__).resolve().parent.parent / "out" / "ping_plot.png"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_RAW = REPO_ROOT / "data" / "raw" / "pings.csv"
+DEFAULT_OUT = REPO_ROOT / "data" / "out" / "ping_plot.png"
 
 
 def load_points(raw_path):
