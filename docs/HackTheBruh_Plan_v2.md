@@ -57,8 +57,9 @@ One pitch, three rubrics:
 | Layer | Source | Notes |
 |---|---|---|
 | Street graph | OpenStreetMap (osmnx/Overpass, cached once) | Converted into `street_network.RoadGraph` via `HIGHWAY_DEFAULTS` |
-| **Bus positions (live)** | TfE open data `GET https://tfe-opendata.com/api/v1/vehicle_locations` | **Unofficial, unauthenticated.** Test in 5 minutes. Poll every 30 s, append raw JSON + parsed rows. |
-| Bus positions (fallback) | Edinburgh DataShare: Lothian Buses full-fleet GPS traces 2014–15 (CC BY 4.0) | Historical, but real. Lose "live", keep the prediction story. |
+| **Bus positions (live)** | bustimes.org `GET https://bustimes.org/vehicles.json?xmin=&xmax=&ymin=&ymax=` | **Third-party, unauthenticated, no published terms found: ask the site owner before polling overnight.** Tested 7 Nov: 290 vehicles around Edinburgh, 244 of them Lothian, with coordinates, fix time, heading and service. One request per poll for the whole box, append raw JSON + parsed rows, and credit the source. |
+| Bus positions (fallback) | Edinburgh DataShare: Lothian Buses full-fleet GPS traces 2014–15 (CC BY 4.0) | Historical, but real. Lose "live", keep the prediction story. OSM shows today's stops, so some may have moved since 2014–15. |
+| Ruled out | TfE Open Data API; Bus Open Data Service (BODS) | TfE's docs say the API is closed. BODS had 25,625 vehicles nationally on 7 Nov, none from Lothian, and 8 around Edinburgh. |
 | Vehicle volumes | DfT road traffic statistics: 156 Edinburgh count points, CSV | Calibrates demand on the boundary roads. |
 | Rules | Lawnmarket ETRO/25/23 advert + council traffic-order pages | Cached as text with page numbers. |
 | Complaints | Consultation Hub / Improving Old Town Streets published material | If no located comments exist: themes by named street, labelled as such. Never invent. |
@@ -72,7 +73,7 @@ One pitch, three rubrics:
 | Step | Library call | Glue we write |
 |---|---|---|
 | Graph | `street_network.RoadGraph`, `clean_network`, `EdgeIndex` | OSM → RoadGraph adapter (~80 lines) |
-| Bus pings → edge speeds | `street_network.map_match` (Newson–Krumm HMM, Viterbi) | Collector; per-vehicle ping sequences; traversal speed per edge per 15-min bin; strip dwell at stops |
+| Bus pings → edge speeds | `street_network.map_match` (Newson–Krumm HMM, Viterbi) | Collector; per-vehicle ping sequences; traversal speed per edge per 15-min bin; separate dwell at stops (moved under 10 m and within 20 m of an OSM bus stop): keep every ping pair, store dwell time apart, leave it out of the speed |
 | Rules | `policy_compiler.compile_policy`, `verify_span`, `Gazetteer`, `parse_predicate`, `AbstentionQueue`, `policy_check` | Gazetteer from OSM street names; ~15 hand-authored `PolicyClause`s |
 | OSM mismatch | `CompiledFixings.to_dict()` | Compare compiled prohibitions with OSM `access` / `motor_vehicle` tags on the bound edges |
 | Complaints | `public_voice.ingest_concerns`, `classify_theme`, `find_near_duplicates`, `concern_field`, `local_getis_ord`, `hotspot_clusters` | Loader for published material |
@@ -94,7 +95,7 @@ One pitch, three rubrics:
 | | |
 |---|---|
 | **Question** | What is the traffic speed on a street, right now, where no bus has been in the last 15 minutes? |
-| **Target** | Mean bus traversal speed on edge *e* in 15-min bin *t* (or travel-time index vs free-flow) |
+| **Target** | Mean bus traversal speed on edge *e* in 15-min bin *t*, as total metres ÷ total seconds |
 | **Features** | Road class, lanes, length, limit (OSM) · edge betweenness (`street_network`) · restriction flags (from the compiled rules) · concern intensity per theme (from `public_voice`) · hour, weekday · spatial lag: recent speeds on neighbouring edges · DfT AADF where matched |
 | **Baselines** | (1) mean by road class × hour; (2) nearest observed edge, same bin |
 | **Validation** | **GroupKFold by street** = held-out streets are genuinely unobserved (the "invisible" claim). **Time split** (train early hours, test last hours) for the "next hour" claim. |
@@ -145,7 +146,7 @@ Pairs, per our rule (never solo). Clock starts at **T+0 = now**; adjust checkpoi
 
 | When | Signal | Engine |
 |---|---|---|
-| **T+0 – 0.5** (both) | **Test TfE endpoint. Start the collector on a machine that will stay awake all night.** Every hour lost here is data lost. | Pull + cache OSM for a generous bbox |
+| **T+0 – 0.5** (both) | **Get the OK from bustimes.org. Start the collector on a machine that will stay awake all night.** Every hour lost here is data lost. | Pull + cache OSM for a generous bbox |
 | T+0.5 – 3 | Ping → map match → edge-speed table on the first hour of data | OSM → RoadGraph; gazetteer from street names; fix bbox from first ping plot |
 | T+3 – 6 | Features, two baselines, gradient boosting, GroupKFold + time split | ~15 clauses + compile + abstention queue + OSM mismatch; concern records + field + hotspots |
 | T+6 – 9 | Prediction layer → JSON; check assignment link times vs observed speeds | Demand (gravity + GLS vs DfT); UE; candidate list; scenarios; **launch exhaustive robust run overnight** |
@@ -157,7 +158,7 @@ Pairs, per our rule (never solo). Clock starts at **T+0 = now**; adjust checkpoi
 
 | If… | By | Then |
 |---|---|---|
-| TfE endpoint dead | T+0.5 | DataShare 2014–15 traces. Drop "live", keep everything else. |
+| bustimes.org refuses, blocks us or goes down | As soon as it happens | DataShare 2014–15 traces. Drop "live", keep everything else. |
 | Map matching too slow or wrong | T+3 | `snap_point` nearest-edge on bus corridors only |
 | Model doesn't beat baseline 2 | T+9 | Report it honestly; ship baseline 2 + the leakage slide. Rigour still scores. |
 | Exhaustive run too slow | T+8 | k = 6 or 4 scenarios; GA on the full set |
@@ -188,4 +189,4 @@ Pairs, per our rule (never solo). Clock starts at **T+0 = now**; adjust checkpoi
 - "Bus-observed speed", never "traffic speed".
 - No claim of calibrated city-wide forecasts.
 
-**Sources:** [TfE vehicle_locations (unofficial, via r/Edinburgh)](https://lr.in.psf.lt/r/Edinburgh/comments/1ifebjx/transport_for_edinburghlothian_buses_api) · [Lothian Buses GPS traces 2014–15](https://datashare.ed.ac.uk/handle/10283/2089) · [DfT counts, City of Edinburgh](https://roadtraffic.dft.gov.uk/local-authorities/29) · [ETRO/25/23 advert](https://www.edinburgh.gov.uk/downloads/file/38911/advert) · [Edinburgh traffic orders](https://www.edinburgh.gov.uk/trafficorders) · [Improving Old Town Streets](https://www.edinburgh.gov.uk/public-transport/improving-old-town-streets) · [Consultation Hub](https://consultationhub.edinburgh.gov.uk/)
+**Sources:** [bustimes.org](https://bustimes.org/) · [TfE API closure notice](https://tfe-opendata.readme.io/) · [Lothian Buses GPS traces 2014–15](https://datashare.ed.ac.uk/handle/10283/2089) · [DfT counts, City of Edinburgh](https://roadtraffic.dft.gov.uk/local-authorities/29) · [ETRO/25/23 advert](https://www.edinburgh.gov.uk/downloads/file/38911/advert) · [Edinburgh traffic orders](https://www.edinburgh.gov.uk/trafficorders) · [Improving Old Town Streets](https://www.edinburgh.gov.uk/public-transport/improving-old-town-streets) · [Consultation Hub](https://consultationhub.edinburgh.gov.uk/)
