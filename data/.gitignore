@@ -1,0 +1,11 @@
+# Never commit raw data, derived data or secrets.
+raw/*
+!raw/delete_this.txt
+derived/
+.env
+.env.*
+
+# Local tool output
+__pycache__/
+.pytest_cache/
+.ruff_cache/
