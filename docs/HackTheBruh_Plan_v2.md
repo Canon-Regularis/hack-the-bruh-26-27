@@ -162,7 +162,7 @@ Status at Sat 21:40, from the repo.
 |---|---|---|---|
 | Matthew Li | Collector | 17:10 | Working: 44,063 pings plotted by 21:12, including repeated fixes. We have the OK for overnight polling. Overnight run not confirmed. |
 | Matthew Li | Ping plot and 20-minute sample | 18:00 | Plot merged in PR #54. The 20-minute sample and the study bbox are still to do. |
-| Matthew Li | Map matching | 19:40 | Nothing pushed yet. The road graph and OSM cache are ready. Speed is a risk, see below. |
+| Matthew Li | Map matching | 19:40 | Nothing pushed yet. The road graph is on `main`, and Matthew Li has the OSM cache. Speed is a risk, see below. |
 | Matthew Li | Prediction JSON for the frontend | 01:40 | Not started. Needs the model. |
 | Adish | Repo setup and library check | T+0 | Done. |
 | Adish | Dwell stripping and edge-speed table | 19:40 | Code merged, including the dwell rule fix. Tested on synthetic data only. Real-data run and coverage report still to do. |
@@ -174,10 +174,9 @@ Status at Sat 21:40, from the repo.
 
 **What Matthew Li needs from Adish:**
 
-- The OSM cache, `data/raw/osm.json`, sent directly because it is not in git.
 - Later, the model output format, agreed before the prediction JSON is built.
 
-Everyone must build from the same OSM cache, because a fresh download can give different edge ids. Run `python -m src.graph.build_graph` from the repo root to build the graph from it.
+Adish sent the OSM cache, `data/raw/osm.json`, directly because it is not in git. Everyone must build from this same file, because a fresh download can give different edge ids. Run `python -m src.graph.build_graph` from the repo root to build the graph from it.
 
 **Map matching speed:** on synthetic bus traces over the real graph, `map_match` took about 0.1 to 0.16 s per ping, roughly 4 hours per 100,000 pings on one core. It picked the right edge 89 to 92% of the time. Matching must remove repeated fixes, keep only pings in the study area, run buses in parallel and run in batches as data arrives. Timing it on the 20-minute sample will replace this estimate. Fallback: `snap_point` on bus corridors only.
 
