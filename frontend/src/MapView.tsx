@@ -36,7 +36,7 @@ const GROUPS: Partial<Record<LayerId, string[]>> = {
   rules: ['rules-held', 'rules-case', 'rules', 'rules-wrong-case', 'rules-wrong'],
   concerns: ['concerns-case', 'concerns'],
   speeds: ['city-speeds-case', 'city-speeds', 'speeds-case', 'speeds', 'speeds-predicted'],
-  traffic: ['traffic-case', 'traffic'],
+  traffic: ['city-traffic-case', 'city-traffic', 'traffic-case', 'traffic'],
   crossings: ['crossings'],
   counts: ['counts', 'counts-label'],
 };
@@ -122,11 +122,19 @@ function addLayers(map: MLMap, data: Data, online: boolean) {
     paint: { 'line-color': HIGHLIGHT, 'line-blur': 0.5, 'line-width': byZoom(9, 22) } }, labels);
 
   const hasFlow: FilterSpecification = ['>', ['coalesce', ['get', 'flow'], 0], 0];
+  const trafficColour = ['interpolate', ['linear'], ['get', 'vc'], ...TRAFFIC_RAMP.flat()] as ExpressionSpecification;
+  if (data.cityTraffic) {
+    map.addSource('city-traffic', { type: 'geojson', data: data.cityTraffic });
+    map.addLayer({ id: 'city-traffic-case', type: 'line', source: 'city-traffic', layout: ROUND,
+      paint: { 'line-color': '#ffffff', 'line-width': trafficWidth(2) } }, labels);
+    map.addLayer({ id: 'city-traffic', type: 'line', source: 'city-traffic', layout: ROUND,
+      paint: { 'line-color': trafficColour, 'line-width': trafficWidth(0) } }, labels);
+  }
   map.addLayer({ id: 'traffic-case', type: 'line', source: 'network', filter: hasFlow, layout: ROUND,
     paint: { 'line-color': '#ffffff', 'line-width': trafficWidth(2) } }, labels);
   map.addLayer({ id: 'traffic', type: 'line', source: 'network', filter: hasFlow, layout: ROUND,
     paint: {
-      'line-color': ['interpolate', ['linear'], ['get', 'vc'], ...TRAFFIC_RAMP.flat()] as ExpressionSpecification,
+      'line-color': trafficColour,
       'line-width': trafficWidth(0),
     } }, labels);
 

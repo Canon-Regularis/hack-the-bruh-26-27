@@ -127,6 +127,7 @@ export interface Data {
   concerns: Record<string, ConcernRecord[]> | null;
   speeds: Speeds | null;
   city: CitySpeeds | null;
+  cityTraffic: FeatureCollection<LineString, { id: string; name: string; flow: number; vc: number }> | null;
   warnings: string[];
 }
 
@@ -207,7 +208,15 @@ export async function loadData(): Promise<Data> {
       warnings.push(`City-wide bus speeds left out: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  return { meta, network, streets, crossings, counts, rules, concerns, speeds, city, warnings };
+  let cityTraffic: Data['cityTraffic'] = null;
+  if (meta.layers.traffic?.city_edges) {
+    try {
+      cityTraffic = await get<NonNullable<Data['cityTraffic']>>('city_traffic.geojson', isCollection);
+    } catch (e) {
+      warnings.push(`City-wide car traffic left out: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  return { meta, network, streets, crossings, counts, rules, concerns, speeds, city, cityTraffic, warnings };
 }
 
 /** The slowest reading in a bin among the given directed edges, or null if none of them has one. */

@@ -363,6 +363,18 @@ def test_city_speed_layer_is_none_before_the_night_is_joined(graph, tmp_path):
     assert export.city_speed_layer(graph, BINS, tmp_path / "speeds_night.csv") is None
 
 
+def test_city_traffic_keeps_flowing_segments_outside_the_study_area(graph):
+    ue = {**UE, "5": {"flow": 30.0, "vc": 0.1, "t": 1, "t0": 1}, "6": {"flow": 20.0, "vc": 0.4, "t": 1, "t0": 1},
+          "3": {"flow": 0.0, "vc": 0.0, "t": 1, "t0": 1}}
+    [far] = export.city_traffic_features(graph, ue)
+    assert far["properties"] == {"id": far["properties"]["id"], "name": "Far Road", "flow": 50.0, "vc": 0.4}
+    assert far["properties"]["id"] in {"5", "6"}
+
+
+def test_city_traffic_leaves_out_segments_without_flow(graph):
+    assert export.city_traffic_features(graph, {**UE, "5": {"flow": 0.0, "vc": 0.0, "t": 1, "t0": 1}}) == []
+
+
 @pytest.fixture
 def run_main(graph, tmp_path, monkeypatch):
     monkeypatch.setattr(export, "OUT_DIR", tmp_path / "out")
@@ -402,6 +414,21 @@ def test_main_lists_traffic_with_its_hour(run_main, tmp_path, monkeypatch):
     monkeypatch.setattr(export, "UE_META_PATH", meta_path)
     traffic = run_main()["layers"]["traffic"]
     assert traffic["basis"] == "estimated" and traffic["hour"] == "08:00-09:00 weekday"
+    assert "city_edges" not in traffic and not (tmp_path / "out" / "city_traffic.geojson").exists()
+
+
+def test_main_writes_city_traffic_when_flow_leaves_the_study_area(run_main, tmp_path, monkeypatch):
+    ue = _write_csv(tmp_path / "ue.csv", [
+        {"edge_id": eid, "length_m": "1", "free_flow_time_s": "1", "ue_time_s": "1", "flow_veh_h": flow, "vc": "0.1"}
+        for eid, flow in (("0", "100"), ("5", "30"))
+    ])
+    meta_path = tmp_path / "ue.json"
+    meta_path.write_text(json.dumps({"hour": "08:00-09:00 weekday"}), encoding="utf-8")
+    monkeypatch.setattr(export, "UE_PATH", ue)
+    monkeypatch.setattr(export, "UE_META_PATH", meta_path)
+    assert run_main()["layers"]["traffic"]["city_edges"] == 1
+    city = json.loads((tmp_path / "out" / "city_traffic.geojson").read_text(encoding="utf-8"))
+    assert [f["properties"]["name"] for f in city["features"]] == ["Far Road"]
 
 
 def test_main_writes_rules_and_concerns_onto_the_network(run_main, tmp_path, monkeypatch):

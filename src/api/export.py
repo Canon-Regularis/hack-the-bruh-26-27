@@ -36,7 +36,7 @@ SPEED_COLUMNS = ("edge_id", "bin_start_utc", "speed_kmh", "kind")
 SPEED_KINDS = {"observed": "1", "predicted": "0"}
 LAYER_FILES = {"crossings": "crossings.geojson", "counts": "counts.geojson", "rules": "rules.json",
                "concerns": "concerns.json", "speeds": "speeds.json", "city": "city_speeds.json",
-               "city_network": "city_network.geojson"}
+               "city_network": "city_network.geojson", "city_traffic": "city_traffic.geojson"}
 
 
 def in_bbox(lon: float, lat: float, bbox=STUDY_BBOX) -> bool:
@@ -339,6 +339,29 @@ def city_speed_layer(graph: sn.RoadGraph, bins: list[str], speeds_path: Path = S
     return features, {"bins": bins, "edges": {k: {"s": v["s"], "o": "".join(v["o"])} for k, v in edges.items()}}
 
 
+def city_traffic_features(graph: sn.RoadGraph, ue: dict[str, dict]) -> list[dict]:
+    """Return one LineString per segment outside the study area that carries modelled car flow.
+
+    Properties match network.geojson's styling ones: flow (both directions summed) and vc (the busier one).
+    """
+    flowing = {int(eid) for eid, run in ue.items() if run["flow"] > 0}
+    sub = graph.subgraph({n for eid in flowing for n in (graph.edge(eid).u, graph.edge(eid).v)})
+    features = []
+    for feature in sn.to_geojson(sub, include_nodes=False)["features"]:
+        edge = graph.edge(feature["properties"]["edgeId"])
+        if all(in_bbox(graph.node(n).lon, graph.node(n).lat) for n in (edge.u, edge.v)):
+            continue
+        runs = [run for eid in (edge.eid, edge.reverse_eid) if eid is not None and (run := ue.get(str(eid)))]
+        if not any(run["flow"] > 0 for run in runs):
+            continue
+        coords = [[round(x, CITY_DECIMALS), round(y, CITY_DECIMALS)] for x, y in feature["geometry"]["coordinates"]]
+        features.append({"type": "Feature", "geometry": {"type": "LineString", "coordinates": coords},
+                         "properties": {"id": str(edge.eid), "name": edge.street_name,
+                                        "flow": round(sum(r["flow"] for r in runs), 1),
+                                        "vc": round(max(r["vc"] for r in runs), 3)}})
+    return features
+
+
 def summary_meta(summary: dict) -> dict:
     """Pick the site's headline numbers out of Signal's summary file.
 
@@ -433,6 +456,11 @@ def main() -> None:
                             "note": "Speed of buses, not of all traffic. Solid where a bus was seen in that "
                                     "quarter-hour; dashed where the model predicts it", **speeds[1]}
     kept = {LAYER_FILES[layer] for layer in layers if layer in LAYER_FILES}
+    city_traffic = _optional("city traffic", lambda: city_traffic_features(graph, traffic[0])) if traffic else None
+    if city_traffic:
+        _write("city_traffic.geojson", _collection(city_traffic))
+        layers["traffic"]["city_edges"] = len(city_traffic)
+        kept.add(LAYER_FILES["city_traffic"])
     if speeds and city and city[1]["edges"]:
         _write("city_network.geojson", _collection(city[0]))
         _write("city_speeds.json", city[1])
