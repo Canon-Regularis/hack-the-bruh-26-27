@@ -321,6 +321,7 @@ def _setup_main(clauses, graph, tmp_path, monkeypatch):
         monkeypatch.setattr(module, "load_graph", lambda: graph)
     monkeypatch.setattr(br, "FLAGS_PATH", tmp_path / "glue" / "restriction_flags.csv")
     monkeypatch.setattr(cr, "FLAGS_PATH", tmp_path / "rules" / "restriction_flags.csv")
+    monkeypatch.setattr(cr, "TRADE_OFFS_PATH", tmp_path / "decide" / "best_trade_offs.json")   # no picks
 
 
 def test_main_prints_the_differences_from_the_glue(graph, tmp_path, monkeypatch, capsys):
