@@ -156,26 +156,26 @@ Pairs, per our rule (never solo). **T+0 was Sat 16:40**, so T+3 is 19:40, T+6 is
 
 ### Signal tasks
 
-Status at Sun 00:33, from the repo.
+Status at Sun 03:20, from the repo and the first real run.
 
 | Owner | Task | Target | Status |
 |---|---|---|---|
 | Matthew Li | Collector | 17:10 | Working: 44,063 pings plotted by 21:12, including repeated fixes, and a live test at 22:54 returned 203 vehicles. We have the OK for overnight polling. Asked to keep it running all night. |
-| Matthew Li | Ping plot and 20-minute sample | 18:00 | Plot merged in PR #54. A 20-minute speeds file was sent; it covers only two 15-minute bins, too few to evaluate. A 2-hour file has been asked for. The study bbox is set in `scripts/run_matching.py`. |
-| Matthew Li | Map matching | 19:40 | Built on `feat/map-matching`, no PR yet. `scripts/run_matching.py` removes repeated fixes, keeps the study bbox, matches and writes the edge-speed table. 20 minutes of pings took 295 s to match. Fixes for fast bad matches and parked-bus drift are on `fix/matching-breaks`, branched from it. |
+| Matthew Li | Ping plot and 20-minute sample | 18:00 | Plot merged in PR #54. A 2-hour speeds file (23:00 to 01:00 UTC, 8 bins, 8,312 rows) was sent and evaluated. The 21:00 to 23:00 file was matched before the fixes and needs a rerun. |
+| Matthew Li | Map matching | 19:40 | Built on `feat/map-matching`, no PR yet. `scripts/run_matching.py` and `scripts/run_matching_hourly.py` (2-hour windows by default) remove repeated fixes, keep the study bbox, match and write the edge-speed table. The fixes for fast bad matches and parked-bus drift are included. Merged with `main` locally: no conflicts and the Signal tests pass. |
 | Matthew Li | Prediction JSON for the frontend | 01:40 | Not started. Needs the model. |
 | Adish | Repo setup and library check | T+0 | Done. |
 | Adish | Dwell stripping and edge-speed table | 19:40 | Code merged, including the dwell rule fix. Tested on synthetic data only. Real-data run and coverage report still to do. |
-| Adish | Features, leakage firewall, baselines, model, validation | 22:40 | Merged (#61, #62, #63). The model is LightGBM. On synthetic data on the real graph it beat both baselines and passed the leakage check. Real results wait for the 2-hour speeds file. |
+| Adish | Features, leakage firewall, baselines, model, validation | 22:40 | Merged (#61, #62, #63). First real run on 23:00 to 01:00 bus-observed speeds: MAE of model / baseline 1 / baseline 2 is 6.61 / 6.92 / 7.15 km/h on held-out streets (8% better than baseline 2) and 5.76 / 6.77 / 8.67 km/h on later bins (34% better). It beats baseline 2 in all 5 street folds and all 3 time folds, so the T+9 check is met. The leakage check now averages 5 shuffles and compares with a constant median guess (on `fix/leakage-seeds`); it passes. |
 | Adish | Assignment vs observed speeds | 01:40 | Not started. Engine's baseline equilibrium code is on `main` (#24) and writes per-edge times, but it needs `data/demand/od_matrix.json` first. How to compare is not decided yet. |
 | Adish | Morning retrain, final numbers, results slide | Sun morning | Not started. |
 
-**Next for Adish:** when the 2-hour speeds file arrives, run `scripts/evaluate_speed_model.py --speeds <file>`, which writes a dated report to `data/derived/reports/`, and check whether the model beats baseline 2. When the matching code merges, remove `scripts/build_edge_speeds.py` and its test, since `scripts/run_matching.py` does the same job, and add tests for its ping loading. In the morning, join the hourly speeds files and rerun the evaluation on the full night, then train once on all observed data and predict unobserved edges for the prediction JSON.
+**Next for Adish:** review the matching PR once it is open. Build the prediction output, tests first: train on all observed data and predict every study-area edge and 15-minute bin, marking each row observed or predicted. When the full night is matched, join the files, rerun the evaluation and the predictions, and compute the headline share of street-time predicted and its error. When the matching code merges, remove `scripts/build_edge_speeds.py` and its test. Read `data/concerns/concern_field.csv` as a feature once Engine supplies `data/raw/concerns.csv`.
 
 **What Matthew Li needs from Adish:**
 
 - Review of the matching PR once it is open, including the fixes on `fix/matching-breaks`: pairs above 80 km/h are dropped, and a backward move under 10 m on the same edge counts as 0 m so dwell is kept.
-- Later, the model output format, agreed before the prediction JSON is built.
+- The prediction table: one row per edge and 15-minute bin with `edge_id`, `street_name`, `bin_start_utc`, `speed_kmh`, `kind` (observed or predicted) and `n_traversals`, plus a short summary file. Proposed, not yet agreed.
 
 Adish sent the OSM cache, `data/raw/osm.json`, directly because it is not in git. Everyone must build from this same file, because a fresh download can give different edge ids. Run `python -m src.graph.build_graph` from the repo root to build the graph from it. No code in the repo creates `osm.json`: it was downloaded once from the Overpass API on 7 Nov at 21:12 (SHA-256 starts `e6c3c0dfd255d4b3`), and the query was not saved. `src/graph/build_graph.py` only reads it, and it expects the query to use recursion (`>;`) so every road's nodes are included. Keep this file rather than downloading it again.
 
