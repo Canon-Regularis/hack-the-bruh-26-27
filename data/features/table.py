@@ -26,26 +26,52 @@ def targets(speeds):
 
 def build_feature_table(speeds, graph, betweenness, flags=None, aadf=None):
     """Return the feature table for every target row in the edge-speed table."""
+    make_row = row_builder(speeds, graph, betweenness)
+    rows = [
+        {**make_row(row.edge_id, row.street_name, row.source, row.bin_start_utc),
+         TARGET: getattr(row, TARGET)}
+        for row in targets(speeds).itertuples(index=False)
+    ]
+    return finish(pd.DataFrame(rows), flags, aadf)
+
+
+def build_prediction_features(keys, speeds, graph, betweenness, source, flags=None, aadf=None):
+    """Return feature rows, built as for training, for (edge_id, bin) pairs with no target.
+
+    Lag still comes only from bus-observed rows in the bins before each key.
+    """
+    make_row = row_builder(speeds, graph, betweenness)
+    rows = [
+        make_row(edge_id, graph.edge(int(edge_id)).street_name, source, when)
+        for edge_id, when in keys
+    ]
+    return finish(pd.DataFrame(rows), flags, aadf)
+
+
+def row_builder(speeds, graph, betweenness):
+    """Return a function that builds one row's features from the observed speeds."""
     totals = observed_totals(speeds)
     edge_neighbours = lru_cache(maxsize=None)(lambda edge_id: neighbours(graph, edge_id))
-    rows = []
-    for row in targets(speeds).itertuples(index=False):
-        when = pd.Timestamp(row.bin_start_utc)
-        rows.append({
-            "edge_id": row.edge_id,
+
+    def make_row(edge_id, street_name, source, bin_start_utc):
+        when = pd.Timestamp(bin_start_utc)
+        return {
+            "edge_id": edge_id,
             "bin_start_utc": when,
-            "street_name": row.street_name,
-            "source": row.source,
-            **edge_features(graph, row.edge_id),
-            "betweenness": betweenness.get(row.edge_id),
+            "street_name": street_name,
+            "source": source,
+            **edge_features(graph, edge_id),
+            "betweenness": betweenness.get(edge_id),
             "hour": when.hour,
             "weekday": when.weekday(),
-            "lag_speed_kmh": lag_speed_kmh(
-                totals, edge_neighbours(row.edge_id), row.source, when
-            ),
-            TARGET: getattr(row, TARGET),
-        })
-    table = pd.DataFrame(rows)
+            "lag_speed_kmh": lag_speed_kmh(totals, edge_neighbours(edge_id), source, when),
+        }
+
+    return make_row
+
+
+def finish(table, flags, aadf):
+    """Join the optional per-edge files, then fill and flag missing values."""
     optional = ["betweenness", "lag_speed_kmh"]
     for extra in (flags, aadf):
         if extra is not None and not table.empty:
