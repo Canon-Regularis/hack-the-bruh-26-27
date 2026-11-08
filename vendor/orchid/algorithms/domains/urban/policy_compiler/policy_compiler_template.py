@@ -410,10 +410,8 @@ def _local_jaro(a: str, b: str) -> float:
         return 1.0
     if not a or not b:
         return 0.0
-    match_window = max(len(a), len(b)) // 2 - 1
-    match_window = max(0, match_window)
-    a_flags = [False] * len(a)
-    b_flags = [False] * len(b)
+    match_window = max(0, max(len(a), len(b)) // 2 - 1)
+    a_flags, b_flags = [False] * len(a), [False] * len(b)
     matches = 0
     for i, ca in enumerate(a):
         lo = max(0, i - match_window)
@@ -609,8 +607,7 @@ def _local_metaphone(word: str) -> str:
 
 def levenshtein(a: str, b: str) -> int:
     """Levenshtein edit distance (unit insert / delete / substitute)."""
-    a = _as_str(a, "a")
-    b = _as_str(b, "b")
+    a, b = _as_str(a, "a"), _as_str(b, "b")
     if _HAVE_CORE_SIMILARITY:
         return int(_core_levenshtein_distance(a, b))
     return _local_levenshtein(a, b)
@@ -618,8 +615,7 @@ def levenshtein(a: str, b: str) -> int:
 
 def damerau_levenshtein(a: str, b: str) -> int:
     """Optimal-string-alignment distance (NOT a metric: no triangle inequality)."""
-    a = _as_str(a, "a")
-    b = _as_str(b, "b")
+    a, b = _as_str(a, "a"), _as_str(b, "b")
     if _HAVE_CORE_SIMILARITY:
         return int(_core_damerau_levenshtein_distance(a, b))
     return _local_damerau_levenshtein(a, b)
@@ -627,8 +623,7 @@ def damerau_levenshtein(a: str, b: str) -> int:
 
 def levenshtein_similarity(a: str, b: str) -> float:
     """``1 - levenshtein(a, b) / max(|a|, |b|)`` (1.0 for two empty strings)."""
-    a = _as_str(a, "a")
-    b = _as_str(b, "b")
+    a, b = _as_str(a, "a"), _as_str(b, "b")
     if _HAVE_CORE_SIMILARITY:
         return float(_CoreLevenshteinSimilarity().similarity(a, b))
     if a == b:
@@ -641,8 +636,7 @@ def levenshtein_similarity(a: str, b: str) -> float:
 
 def levenshtein_normalised_distance(a: str, b: str) -> float:
     """``levenshtein(a, b) / max(|a|, |b|)`` -- the core ``.distance()``."""
-    a = _as_str(a, "a")
-    b = _as_str(b, "b")
+    a, b = _as_str(a, "a"), _as_str(b, "b")
     if _HAVE_CORE_SIMILARITY:
         return float(_CoreLevenshteinSimilarity().distance(a, b))
     if a == b:
@@ -655,8 +649,7 @@ def levenshtein_normalised_distance(a: str, b: str) -> float:
 
 def jaro(a: str, b: str) -> float:
     """Jaro similarity in ``[0, 1]``."""
-    a = _as_str(a, "a")
-    b = _as_str(b, "b")
+    a, b = _as_str(a, "a"), _as_str(b, "b")
     if _HAVE_CORE_SIMILARITY:
         return float(_core_jaro_similarity(a, b))
     return _local_jaro(a, b)
@@ -664,8 +657,7 @@ def jaro(a: str, b: str) -> float:
 
 def _check_jw_params(p: Any, max_prefix: Any) -> Tuple[float, int]:
     """Validate the Winkler scaling factor and prefix cap before any delegation."""
-    pv = _as_nonneg(p, "p")
-    mp = _as_int(max_prefix, "max_prefix", minimum=0)
+    pv, mp = _as_nonneg(p, "p"), _as_int(max_prefix, "max_prefix", minimum=0)
     if pv * mp > 1.0:
         raise PolicyCompilerError("p * max_prefix must be <= 1 (got %g * %d)." % (pv, mp))
     return pv, mp
@@ -673,8 +665,7 @@ def _check_jw_params(p: Any, max_prefix: Any) -> Tuple[float, int]:
 
 def jaro_winkler(a: str, b: str, p: float = 0.1, max_prefix: int = 4) -> float:
     """Jaro-Winkler similarity (standard ``p = 0.1``, prefix cap 4)."""
-    a = _as_str(a, "a")
-    b = _as_str(b, "b")
+    a, b = _as_str(a, "a"), _as_str(b, "b")
     pv, mp = _check_jw_params(p, max_prefix)
     if _HAVE_CORE_SIMILARITY:
         return float(_CoreJaroWinklerSimilarity(pv, mp).similarity(a, b))
@@ -683,8 +674,7 @@ def jaro_winkler(a: str, b: str, p: float = 0.1, max_prefix: int = 4) -> float:
 
 def jaccard_tokens(a: str, b: str) -> float:
     """Jaccard coefficient of the word-token sets of two strings."""
-    a = _as_str(a, "a")
-    b = _as_str(b, "b")
+    a, b = _as_str(a, "a"), _as_str(b, "b")
     if _HAVE_CORE_SIMILARITY:
         return float(_CoreJaccardSimilarity().similarity(a, b))
     return _local_jaccard(a, b)
@@ -692,8 +682,7 @@ def jaccard_tokens(a: str, b: str) -> float:
 
 def lcs_similarity(a: str, b: str) -> float:
     """``2 * LCS / (|a| + |b|)`` on characters."""
-    a = _as_str(a, "a")
-    b = _as_str(b, "b")
+    a, b = _as_str(a, "a"), _as_str(b, "b")
     if _HAVE_CORE_SIMILARITY:
         return float(_CoreLCSSimilarity().similarity(a, b))
     return _local_lcs_similarity(a, b)
@@ -701,8 +690,7 @@ def lcs_similarity(a: str, b: str) -> float:
 
 def ratcliff_obershelp(a: str, b: str) -> float:
     """Ratcliff-Obershelp gestalt similarity."""
-    a = _as_str(a, "a")
-    b = _as_str(b, "b")
+    a, b = _as_str(a, "a"), _as_str(b, "b")
     if _HAVE_CORE_SIMILARITY:
         return float(_CoreRatcliffObershelpSimilarity().similarity(a, b))
     return _local_ratcliff_obershelp(a, b)
@@ -740,8 +728,7 @@ STRING_METRICS = ("levenshtein", "damerau_levenshtein", "jaro", "jaro_winkler",
 def string_similarity(a: str, b: str, method: str = "jaro_winkler") -> float:
     """Similarity in ``[0, 1]`` by name; edit distances are max-length normalised."""
     method = _as_choice(method, STRING_METRICS, "method")
-    a = _as_str(a, "a")
-    b = _as_str(b, "b")
+    a, b = _as_str(a, "a"), _as_str(b, "b")
     if method == "levenshtein":
         return levenshtein_similarity(a, b)
     if method == "damerau_levenshtein":
@@ -897,8 +884,7 @@ def normalise_text(text: str, *, expand_abbreviations: bool = True,
     to spaces, then the abbreviation table token by token."""
     s = _strip_accents(_as_str(text, "text")).lower()
     expand_abbreviations = _as_bool(expand_abbreviations, "expand_abbreviations")
-    ordinals = _as_bool(ordinals, "ordinals")
-    compass = _as_bool(compass, "compass")
+    ordinals, compass = _as_bool(ordinals, "ordinals"), _as_bool(compass, "compass")
     s = re.sub("['`\u2018\u2019\u02bc]", "", s)          # every apostrophe form: isn't, isn`t
     # dotted single-letter runs are ONE token: "N.E." -> "ne" (-> northeast), "e.g." -> "eg",
     # "i.e." -> "ie" -- never two separate compass words.
@@ -1013,8 +999,7 @@ def verify_span(source: str, quote: str, start: Optional[int] = None,
     A verified span satisfies ``source[start:end] == quote`` literally or after whitespace
     collapsing.  The fuzzy branch scores token-aligned windows by normalised Levenshtein; a hit
     is returned for a human, never trusted."""
-    source = _as_str(source, "source")
-    quote = _as_str(quote, "quote", allow_empty=False)
+    source, quote = _as_str(source, "source"), _as_str(quote, "quote", allow_empty=False)
     thr = _as_fraction(fuzzy_threshold, "fuzzy_threshold")
     nwin = _as_int(max_fuzzy_windows, "max_fuzzy_windows", minimum=1)
     hint: Optional[int] = None
@@ -1652,8 +1637,7 @@ def resolve_street_name(query: str, names: Sequence[Tuple[str, str]], *,
     (kept at ``>= threshold``, aliases folded to their entry's best). One entry, or a leader
     ahead by ``margin``, is ``bound``; otherwise ``ambiguous``; none is ``unresolved``."""
     q = split_street_name(query)
-    thr = _as_fraction(threshold, "threshold")
-    mg = _as_fraction(margin, "margin")
+    thr, mg = _as_fraction(threshold, "threshold"), _as_fraction(margin, "margin")
     metric = _as_choice(metric, STRING_METRICS, "metric")
     pairs: List[Tuple[str, str]] = []
     for i, pr in enumerate(_as_seq(names, "names")):
@@ -1739,8 +1723,7 @@ def bm25_scores(query: str, documents: Sequence[str], *, k1: float = 1.5,
     docs = [_as_str(d, "documents[%d]" % i)
             for i, d in enumerate(_as_seq(documents, "documents"))]
     k1v = _as_nonneg(k1, "k1")
-    bv = _as_fraction(b, "b")
-    ev = _as_nonneg(epsilon, "epsilon")
+    bv, ev = _as_fraction(b, "b"), _as_nonneg(epsilon, "epsilon")
     toks = sorted(set(_search_tokens(query)))
     per_doc: List[List[float]] = [[] for _ in docs]
     if not docs or not toks:
@@ -3484,14 +3467,20 @@ def classify_wording(text: str) -> WordingClass:
     cue, so ``compile_policy`` can still see a soft (should / encourage) cue on a hard clause."""
     t = re.sub(r"(?i)\b(at no time|(?:in|under) no circumstances?|on no account|in no case)\b",
                "never", _as_str(text, "text").replace("\0", " "))
-    t = re.sub(r"\b((?:[A-Z]\.){2,}|(?i:st|rd|ave|dept|etc|approx|mrs?|ms|e\.g|i\.e)\.)(?=\s)|\.(?="
-               r"\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)(?:s|rs?|day|sday|nesday|rsday|urday)?s?\b)",
-               lambda mo: (mo.group(1) or "").replace(".", ""), t)   # H.G.V., St., "p.m. Monday"
-    # after an initial, a.m. / p.m., a capitalised word of <= 4 letters (Co., Sq.), a listed
-    # abbreviation (opp.) or "...", a full stop before a capital may or may not end the sentence
-    # ("Zone A. No" / "J. Smith"): read both ways, refused (neutral) if the readings differ
-    t = re.sub(r"(\b(?:[A-Za-z]\.)+|\b(?:[A-Z][A-Za-z]{1,3}|(?i:%s))\.|\.\.\.)(?=\s+[^a-z\s\d])"
-               % "|".join(ABBREVIATIONS), lambda mo: mo.group(1).replace(".", "") + "\0", t)
+    t = re.sub(r"(?i)\b(ought|seeks?|sought)\s*,([^.;:]*?),\s*(not\s+)?to\b", r"\1 \3to,\2,", t)
+    # "Mr.", "e.g.", "St. Stephen's", "p.m. Monday" and "S.I. No. 5" never end a sentence.  A full
+    # stop before a capital after an initial (H.G.V.), a.m. / p.m., a capitalised word of <= 4
+    # letters (Co., Main St.), a listed abbreviation (etc.) or "..." may or may not end it ("Zone
+    # A. No" / "J. Smith"): both readings are taken and refused (neutral) if they differ --
+    # never before a modal ("NO H.G.V. SHALL"); an ALL-CAPS next word joins (no case to read)
+    t = re.sub(r"(\b[A-Z]\S*\s+(?i:st)\.)(?=\s+[A-Z][a-z])|\b((?i:st|mrs?|ms|e"
+               r"\.g|i\.e)\.|(?:(?:[A-Z]\.){2,}|(?i:rd|ave|dept|etc|approx)\.)(?!\s+(?!No\.?\s+\d)[A"
+               r"-Z][a-z]))(?=\s)|\.(?=\s+(?:(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)days?|Mon|Tues?|"
+               r"Weds?|Thu(?:rs?)?|Fri|Sat|Sun)\b)", lambda mo: mo.group(1) or (mo.group(2) or ""
+                                                                               ).replace(".", ""), t)
+    t = re.sub(r"(\b(?:[A-Za-z]\.)+|\b(?:[A-Z][A-Za-z]{1,3}|(?i:%s))\.|\.\.\.)(?=\s+([^a-z\s\d]\w*))"
+               % "|".join(ABBREVIATIONS), lambda mo: mo.group(1).replace(".", "") + "\0" * (
+                   mo.group(2).lower() not in ("shall", "must", "may", "should", "will")), t)
     a = _wording(t.replace("\0", ""))
     b = _wording(t.replace("\0", ".")) if "\0" in t else a
     return a if (a.modality, a.p) == (b.modality, b.p) else WordingClass("neutral", 0.0, a.cue,
@@ -3503,13 +3492,16 @@ def _wording(t: str) -> WordingClass:
     a sentence ("No. 5", "Art. 5", "08:00")."""
     words: List[str] = []
     where: List[Tuple[int, int, int]] = []          # (sentence, comma clause, index in clause)
-    for si, s in enumerate(re.split(r";|:(?!\d)|(?<!\d):|\.(?=\s*$|\s+[^a-z\s\d])", t)):
-        for ci, c in enumerate(s.split(",")):
+    parts = re.split(r"(;|:(?!\d)|(?<!\d):|\.(?=\s*$|\s+[^a-z\s\d]))", t)   # para: full stops
+    para = list(itertools.accumulate([0] + [x == "." for x in parts[1::2]]))   # before sentence
+    for si, s in enumerate(parts[::2]):
+        s = re.sub(r"(--|\s\u2013\s|\u2014)(\s*[a-z].*?)(--|\s\u2013\s|\u2014)", r",\2,", s)  # aside
+        for ci, c in enumerate(re.split(r"[,()\[\]]", s)):        # in brackets / dashes: a clause
             ws = " ".join(_CONTRACTED.get(w, _INFLECT.get(w, w)) for w in normalise_text(
                 c, expand_abbreviations=False, compass=False).split()).split()
             words += ws
             where += [(si, ci, k) for k in range(len(ws))]
-    nxt = words[1:] + [""]
+    nxt, offs = words[1:] + [""], list(itertools.accumulate([0] + [len(w) + 1 for w in words]))
     best: Optional[Tuple[int, int, int, str, str, float]] = None
     found: List[Tuple[int, str]] = []
     for cue, modality, p in WORDING_CUES:   # never across a comma ("shall, not later than")
@@ -3520,7 +3512,7 @@ def _wording(t: str) -> WordingClass:
                                       or nxt[i][:1].isdigit())):
                 continue
             found.append((i, cue))
-            key = (-len(cue), sum(len(w) + 1 for w in words[:i]))
+            key = (-len(cue), offs[i])
             if best is None or key < best[:2]:
                 best = key + (i, cue, modality, p)
     if best is None:
@@ -3533,21 +3525,26 @@ def _wording(t: str) -> WordingClass:
             nxt[j] in _NO_IDIOMS or nxt[j] in _COMPARATIVES and words[j + 2:j + 3] == ["than"]
             or nxt[j][:1].isdigit() and words[j] == "no"))
 
-    # a cue opening a later comma clause continues an earlier one ("will not, however, support",
-    # "shall not, in any case, be prohibited"): the earlier clauses' negations reach it too
-    cont = ci > 0 and (k == 0 or k == 1 and words[i - 1] in ("be", "is", "are"))
-    # a modal ENDING its comma clause continues into the later ones ("shall, in any event,
-    # never commence"): their negations and deontic words reach it too
+    # a cue opening a later comma clause, or with only auxiliaries before it there ("will be
+    # supported"), continues an earlier one ("will not, however, support", "shall not, in any
+    # case, be prohibited"): the earlier clauses' negations reach it, as a lone "Never," does
+    cont = ci > 0 and set(words[i - k:i]) <= set("be is are will would shall should must may can "
+                                                 "could might not never been".split())
+    # a modal ENDING its comma clause continues into the later ones up to the next full stop
+    # ("shall, in any event, never commence", "shall: (a) not obstruct ...; (b) ..."): their
+    # negations and deontic words reach it too
     fwd = cue.split()[-1] in ("must", "shall", "may", "should", "not", "to") and (
         i + n == len(words) or where[i + n][:2] != (si, ci))
-    scope = set(j for j in range(len(words)) if where[j][0] == si and (where[j][1] == ci or (
-        cont and where[j][1] < ci) or (fwd and where[j][1] > ci)))
+    scope = set(j for j in range(len(words)) if fwd and where[j][:2] > (si, ci) and para[where[j][
+        0]] == para[si] or where[j][0] == si and (where[j][1] == ci or (cont and where[j][1] < ci)
+        or where[j][1] < ci and where[j][2] == 0 and words[j] in _NEGATORS and where[j + 1][:2] !=
+        where[j][:2]))
     gov = sorted([(g, q) for g, q in found if q in ("should", "may", "ought to")] + [
         (g, words[g]) for g in scope if words[g] in ("might", "could", "would", "can")])
     gov = [x for x in gov if x[0] < i and x[0] in scope]
     if gov and cue == "prohibited":     # "should be prohibited" is no prohibition; a cue with its
         return WordingClass("neutral", 0.0, gov[-1][1],        # own verb ("is prohibited") is
-                            sum(len(w) + 1 for w in words[:gov[-1][0]]))   # not governed by it
+                            offs[gov[-1][0]])   # not governed by it
     handled, table = -1, None
     if "not" not in cue.split():
         subj = [j for j in range(i) if words[j] == "no" and where[j][0] == si and (where[j][2] == 0

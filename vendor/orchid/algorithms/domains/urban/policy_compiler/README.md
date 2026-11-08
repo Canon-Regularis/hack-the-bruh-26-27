@@ -110,7 +110,7 @@ metrics to `algorithms/core/nlp/similarity` and BM25 / phrase search / RRF to
 
 ```bash
 python policy_compiler_template.py     # the demo, prints "demo OK"
-pytest _stress_test.py -q              # 293 oracle-based tests
+pytest _stress_test.py -q              # 309 oracle-based tests
 ```
 
 ---
@@ -291,30 +291,40 @@ built by exhaustive enumeration over endpoints `0..5`.
 `classify_wording` (longest modal cue wins: `must not` beats `must`) gives a
 modality and `p ∈ [-1, 1]`; a cue never spans a comma ("shall, not later than
 14 days …, notify" is an obligation), and a negator ending an earlier comma
-clause never flips it. A cue that opens a later comma clause (or follows a
-bare *be / is / are* there) *continues* an earlier one -- "will not, however,
+clause never flips it. An aside in brackets, `[...]` or a dash pair (`--`,
+spaced en dash, em dash, opening lower-case) is a comma clause of its own
+("shall (not later than 14 days ...) notify" is an obligation). A cue that
+opens a later comma clause (or follows only auxiliaries there: *be / is / will
+/ will be / shall not* ...) *continues* an earlier one -- "will not, however,
 support", "shall not, in any case, be prohibited", "The owner who does not,
-shall pay" -- so a negation in the clauses before it is unresolved
+shall pay", "no new development, other than ..., will be supported" -- so a
+negation in the clauses before it, or a lone "Never," clause, is unresolved
 (`neutral`). Symmetrically, a modal that *ends* its comma clause continues
 into the later ones ("shall, in any event, never commence", "may, however,
-not wait"): a negation or a second deontic word there is refused (`neutral`),
+not wait"), and one ending its sentence at a colon or semicolon into the
+list after it, up to the full stop ("shall: (a) not obstruct …; (b) …"): a
+negation or a second deontic word there is refused (`neutral`),
 never dropped. A colon ends a sentence only when it is not between two digits
 ("Article 3: No …", but never *08:00*). A full stop ends a sentence only
-before a word that is not lower-case, never before a number or a day name
-("Schedule No. 3", "Art. 5", "6 p.m. Monday") and never after a listed
-abbreviation (*H.G.V.*, *St.*, *Dept.*, *etc.*, *Mr.*, *e.g.*): "No vehicle
-exceeding 7.5 tonnes m.g.w. shall …" keeps its *No*. After an initial, *a.m.*
-/ *p.m.*, a capitalised word of at most four letters (*Co.*, *Sq.*, *Ord.*)
-or another abbreviation of the table (*opp.*, *para.*) a full stop before a
-capital may or may not end the sentence ("Zone A. No vehicle …" against "J.
-Smith"): the wording is read both ways and refused (`neutral`) when the two
-readings differ. A *no* just after a clock time ("Between 8 a.m. and 6 p.m.
+before a word that is not lower-case, never before a number, a modal or a
+whole day name (*Thus* is not *Thu*) ("Schedule No. 3", "Art. 5", "6 p.m.
+Monday", "NO H.G.V. SHALL") and never after *Mr.*, *e.g.*, *i.e.*, a Saint's
+*St.* ("on St. Stephen's Green") or before "No. 5" after *S.I.*: "No vehicle
+exceeding 7.5 tonnes m.g.w. shall …" keeps its *No*. After an initial
+(*J.*, *H.G.V.*), *a.m.* / *p.m.*, a capitalised word of at most four letters
+(*Co.*, *Sq.*, *Ord.*, the *St.* / *Rd.* / *Ave.* ending a street name) or
+another abbreviation of the table (*opp.*, *para.*, *etc.*, *Dept.*,
+*approx.*) a full stop before a capital may or may not end the sentence ("Zone
+A. No vehicle …" or "… Fitzwilliam St. Vehicles must …" against "J. Smith"):
+the wording is read both ways and refused (`neutral`) when the two readings
+differ. A *no* just after a clock time ("Between 8 a.m. and 6 p.m.
 no person shall …") opens its clause. The bare participle *prohibited* under
 a soft modal earlier in its clause -- *should*, *may*, *ought to*, *could*,
 *might*, *would*, *can*: "should be prohibited", "may, in places, be
 prohibited", "could be prohibited" -- is `neutral` with the modal as its cue,
 so a hard clause worded with *should* / *ought to* is queued (*ought to* /
-*ought not to* are soft cues like *should* / *should not*); a cue with
+*ought not to* are soft cues like *should* / *should not*, also around an
+interjection: "ought, wherever possible, to be prohibited"); a cue with
 its own verb ("It should be noted that parking *is prohibited*") is not
 governed. The soft verbs are read in their inflected forms too ("will be
 encouraged / supported / resisted", "is discouraged", "prioritized", "is
@@ -500,7 +510,11 @@ objective — so the full pipeline runs with no data.
   end it ("No vehicle owned by J. Smith shall …", "No vehicle in Co. Dublin
   shall …"). The abbreviation knowledge is finite: an unlisted abbreviation
   of five letters or more before a capital ("the Residents Assoc. Committee")
-  still ends the sentence and cuts the cue off from its *No* (pinned). A
+  still ends the sentence and cuts the cue off from its *No* (pinned). ALL-CAPS
+  text has no case to tell a sentence start from a name, so there the listed
+  abbreviations join as before ("NO PARKING ON MAIN ST. VEHICLES SHALL BE
+  REMOVED" reads -1) and a dash aside is not split; a dash pair opening
+  upper-case (a typeset range "Mon – Fri 8am – 6pm") is no aside (pinned). A
   modal ending its comma clause makes any negation after it unresolved, so
   "The operator shall, without delay, notify …" is refused too (safe). A cue is a word whatever its grammatical role, so
   "Supporting documents must be submitted" reads the longer soft cue
@@ -528,7 +542,7 @@ objective — so the full pipeline runs with no data.
 
 ## Testing
 
-`_stress_test.py` — **293 tests**, zero skips, green from the module directory
+`_stress_test.py` — **309 tests**, zero skips, green from the module directory
 and the repository root and under `PYTHONHASHSEED` 0 / 1 / 1010:
 
 1. **Closed forms.** `levenshtein(kitten, sitting) = 3`;
@@ -879,6 +893,76 @@ Fixing the sentence rule exposed one flaw in the fix itself (a day-name
 prefix joined "street. Monument Square"); it is pinned with the
 *Assoc.* limit.
 
+**What the ninth bug hunt caught** (tiers 44 and 45; each tier-44 regression
+test fails against the round-8 template). The confirmation round did not
+converge: six template bugs, all in `classify_wording` scope, all silent sign
+errors or a skipped wording check. An independent metamorphic generator --
+subject x modal x negation, an aside (commas, brackets, dashes, a citation)
+at every slot, and a preceding cue-free sentence ending in an ambiguous or
+listed full stop, the bare sentence's reading as the reference -- gave a wrong
+sign on 6,332 of 42,120 sentences on the round-8 template and 0 now:
+- round 7's always-joined abbreviations also end sentences: in "No waiting on
+  Fitzwilliam St. Vehicles must use the car park" (and after *Rd.*, *Ave.*,
+  *Dept.*, *etc.*, *approx.*, *H.G.V.*) the first sentence's *No* negated the
+  second's cue (-1 for an obligation). Before a capitalised word such a stop
+  is now read both ways; *St. Stephen's*, *S.I. No. 274* and an ALL-CAPS
+  next word still join;
+- the day-name join matched *Thu* + *s*: "No objection was received. Thus
+  the Council shall proceed" scored -1. Only whole day words join;
+- brackets and dashes did not scope a cue: "The operator shall (not later
+  than 14 days …) notify" read *shall not* (-1; round 6 fixed only the comma
+  form), and "Vehicles must (other than buses, taxis and cycles) not enter"
+  hid the negation from the forward rule (+1). An aside in `()`, `[]` or a
+  dash pair is a comma clause of its own;
+- the backward rule continued only a cue opening its clause: "In the Green
+  Belt no new development, other than for agriculture, will be supported" --
+  standard local-plan wording -- and "Never, in any case, will the Council
+  support …" scored +0.5. A cue after auxiliaries only, and a lone negator
+  clause, now continue;
+- a comma interjection split the soft cue *ought to*: "Through traffic ought,
+  wherever possible, to be prohibited" read a hard -1 and a hard clause so
+  worded compiled a fixing instead of being queued;
+- a colon or semicolon ended the sentence before a list: "The operator
+  shall: (a) not obstruct the footway; and (b) not park on the verge" scored
+  +1. A modal ending its sentence there continues up to the full stop.
+
+Also fixed (not a wrong answer): the cue loop summed the preceding word
+lengths for every cue match, so a long quote took quadratic time (12,000
+words about 3 s on the round-8 template, 0.3 s now).
+
+Clean this round:
+- mixed str / int dict keys on 87 probes over every dict-taking entry point
+  (the twelve round-8 ones, nested `from_dict` payloads, `Design` maps,
+  `y_levels`, `relaxation_analysis`, payload builders): no leak;
+- chains of up to ten ambiguous full stops in 60,000 random texts: whenever
+  the wording commits to a reading, every one of the 2^n mixed split / join
+  readings agrees (the two-reading rule is not fooled by mixtures);
+- 150,000 wording token soups with brackets, dashes, NULs and abbreviations
+  (no leak; modality, `p` and cue consistent);
+- string metrics against independent DPs and difflib on 3,000 pairs (the
+  integer Jaro transposition count is the documented *convention*),
+  hypervolume against a grid count in 2-D and 3-D, the non-dominated filter
+  against brute force, kappa against sklearn;
+- span recovery on 2,000 random substrings, projection idempotent and
+  feasible on every district design, the contract's JSON round trip;
+- scale invariance at 1e+-6 (segment distance, bearing, polyline length,
+  ambiguity, entropy, weight prior, hypervolume);
+- NaN / inf on about 60 numeric entry points; every optional parameter probed is
+  live; no aliasing of inputs or results.
+
+A 33-mutant run on the new and untouched code (abbreviation joins, day
+names, the modal exception, bracket / dash asides, auxiliaries, the lone
+negator, *ought* interjections, offsets, geometry, hypervolume, time windows,
+weight prior, idioms, comparatives, negation tables, the month *May*) left
+ten survivors. Two exposed over-narrow rules in the fix itself, now widened:
+a street *St.* after an ALL-CAPS name ("MAIN ST. Vehicles") and "Main St.
+No. 5" are refused like "opp. No. 5". A second, 37-mutant run on the final
+code (adding the colon-list continuation and the Jaro window) left two. Tier
+45 kills all of them: *Rd.* / *etc.* before a bracket, the modal exception,
+minimal dash and *ought* pairing, the governing modal's position, *May*
+before a number, the colon list stopping at the full stop, and the Jaro
+match window `floor(max/2) - 1` ("ab" / "ba" scores 0).
+
 ---
 
 ## References
@@ -899,4 +983,4 @@ prefix joined "street. Monument Square"); it is pinned with the
 ---
 
 *Pure standard library. `policy_compiler_template.py` — `__version__ = "1.0.0"`,
-all public names in `__all__`, 293 oracle-based tests.*
+all public names in `__all__`, 309 oracle-based tests.*

@@ -8,7 +8,7 @@ Matthew Miezaniec
 ## ORCHID library (vendored)
 
 The maths comes from ORCHID: 14 modules copied byte for byte into `vendor/orchid/` from ORCHID
-commit `faf522f`, which is pinned in `scripts/sync_orchid.py`. They use only the standard
+commit `81022c7`, which is pinned in `scripts/sync_orchid.py`. They use only the standard
 library and need Python 3.8+, so there is nothing to install and no ORCHID clone to set up.
 Import them through one wrapper, and run code from the repo root (e.g.
 `python -m src.graph.build_graph`):
