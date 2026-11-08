@@ -6,6 +6,9 @@ if that beats a constant guess of the training median on average, something
 is leaking. The median, not baseline 1, is the reference because an L1 model
 on shuffled targets learns the median, which beats a mean on skewed speeds
 without any leak.
+
+The street split also checks conformal prediction intervals (model.intervals)
+on its held-out observed rows. The leakage check does not.
 """
 
 import platform
@@ -16,6 +19,7 @@ import numpy as np
 from features.lag import LAG_BINS
 from features.table import TARGET
 from model.baselines import NearestObservedEdge, RoadClassHourMean
+from model.intervals import INTERVAL_ALPHA, INTERVAL_METHOD, street_split_coverage
 from model.metrics import mae, skill
 from model.speed_model import MODEL_PARAMS, fit_predict
 from model.splits import street_folds, time_folds
@@ -33,6 +37,7 @@ def score_fold(train, test, midpoints, mode):
     predicted_2, fallbacks = baseline_2.predict(test, mode)
     return {
         "truth": test[TARGET].to_numpy(),
+        "source": test["source"].to_numpy(),
         "model": fit_predict(train, test),
         "baseline_1": baseline_1.predict(test),
         "baseline_2": predicted_2,
@@ -56,12 +61,16 @@ def summarise(scored):
     }
 
 
-def run_split(table, folds, midpoints, mode):
-    """Score every fold, then pool the test rows for the split's headline numbers."""
-    scored = [
+def score_split(table, folds, midpoints, mode):
+    """Return score_fold's output for every fold."""
+    return [
         score_fold(table.iloc[train_rows], table.iloc[test_rows], midpoints, mode)
         for train_rows, test_rows in folds
     ]
+
+
+def summarise_split(scored):
+    """Pool the scored folds' test rows for the split's headline numbers."""
     folds_out = [
         {
             "n_train": s["n_train"],
@@ -75,13 +84,18 @@ def run_split(table, folds, midpoints, mode):
     return {**pooled, "beats_baseline_2": pooled["skill_vs_baseline_2"] > 0, "folds": folds_out}
 
 
+def run_split(table, folds, midpoints, mode):
+    """Score every fold, then pool the test rows for the split's headline numbers."""
+    return summarise_split(score_split(table, folds, midpoints, mode))
+
+
 def evaluate(table, midpoints, n_street_splits=N_STREET_SPLITS, n_time_splits=N_TIME_SPLITS):
-    """Return results for the street split, the time split and the leakage check."""
+    """Return results for the street split, its intervals, the time split and the leakage check."""
     table = table.reset_index(drop=True)
+    street_scored = score_split(table, street_folds(table, n_street_splits), midpoints, "same_bin")
     return {
-        "street_split": run_split(
-            table, street_folds(table, n_street_splits), midpoints, "same_bin"
-        ),
+        "street_split": summarise_split(street_scored),
+        "street_split_intervals": street_split_coverage(street_scored, INTERVAL_ALPHA),
         "time_split": run_split(
             table, time_folds(table, n_time_splits), midpoints, "latest_bin"
         ),
@@ -137,6 +151,8 @@ def build_report(table, results, extra_config):
             "lag_bins": LAG_BINS,
             "leakage_tolerance": LEAKAGE_TOLERANCE,
             "leakage_seeds": list(LEAKAGE_SEEDS),
+            "interval_alpha": INTERVAL_ALPHA,
+            "interval_method": INTERVAL_METHOD,
             **extra_config,
         },
         "data": {
