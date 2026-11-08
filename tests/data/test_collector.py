@@ -257,3 +257,64 @@ def test_polling_respects_retry_after(monkeypatch, tmp_path):
     failure = http_error(429, {"Retry-After": "300"})
     waits = run_polls(monkeypatch, tmp_path, [failure, [GOOD_RECORD]])
     assert waits == pytest.approx([300, 30], abs=1)
+
+
+def encode_track(points):
+    """Inverse of decode_track, for building test journeys."""
+    out, prev = [], (0, 0, 0)
+    for lat, lon, t in points:
+        cur = (round(lon * 1e5), round(lat * 1e5), t)
+        for value in (c - p for c, p in zip(cur, prev)):
+            value = ~(value << 1) if value < 0 else value << 1
+            while value >= 0x20:
+                out.append(chr((0x20 | (value & 0x1F)) + 63))
+                value >>= 5
+            out.append(chr(value + 63))
+        prev = cur
+    return "".join(out)
+
+
+T0 = 1793952000  # 2026-11-06T08:00:00Z
+TRACK = [(55.95, -3.19, T0 - 30), (55.951, -3.191, T0), (55.9495, -3.1875, T0 + 1800), (55.94, -3.18, T0 + 3600)]
+
+
+def journey(jid=7, track=TRACK):
+    return {"id": jid, "datetime": "2026-11-06T07:50:00Z", "route_name": "23",
+            "vehicle": {"id": 14015, "slug": "loth-21"}, "time_aware_polyline": encode_track(track)}
+
+
+def test_decode_track_round_trips_points():
+    assert collector.decode_track(encode_track(TRACK)) == TRACK
+
+
+def test_decode_track_of_the_live_format():
+    assert collector.decode_track("~m`SyzjtI{`~t|iB")[0] == (55.93021, -3.28432, 1793949214)
+
+
+def test_track_rows_keep_only_the_window_in_collector_columns():
+    start, end = (collector.datetime.fromtimestamp(t, collector.timezone.utc) for t in (T0, T0 + 3600))
+    rows = collector.track_rows(journey(), start, end, "now")
+    assert [r["vehicle_timestamp"] for r in rows] == ["2026-11-06T08:00:00+00:00", "2026-11-06T08:30:00+00:00"]
+    assert set(rows[0]) == set(CSV_FIELDS)
+    assert (rows[0]["vehicle_id"], rows[0]["lat"], rows[0]["lon"], rows[0]["service"]) == (14015, 55.951, -3.191, "23")
+
+
+def test_run_history_fetches_only_journeys_that_can_reach_the_window(monkeypatch, tmp_path):
+    api = "https://bustimes.org/api"
+    pages = {
+        f"{api}/vehicles/?operator=LOTH&limit=1000": {"results": [{"id": 1}, {"id": 2, "withdrawn": True}]},
+        f"{api}/vehiclejourneys/?vehicle=1&date=2026-11-06": {
+            "results": [{"id": 9, "datetime": "2026-11-06T10:00:00Z"}, {"id": 7, "datetime": "2026-11-06T07:50:00Z"}],
+            "next": "page2"},
+        "page2": {"results": [{"id": 5, "datetime": "2026-11-06T04:00:00Z"}], "next": "page3"},
+        f"{api}/vehiclejourneys/7/details.json": journey(),
+    }
+    fetched = []
+    monkeypatch.setattr(collector, "get_json", lambda url: fetched.append(url) or pages[url])
+    start = collector.datetime.fromtimestamp(T0, collector.timezone.utc)
+    out = tmp_path / "history.csv"
+    collector.run_history([], ["LOTH"], start, start + collector.timedelta(hours=1), out)
+    assert fetched == [*list(pages)[:2], f"{api}/vehiclejourneys/7/details.json", "page2"]
+    with open(out, newline="") as f:
+        assert [r["vehicle_timestamp"] for r in csv.DictReader(f)] == ["2026-11-06T08:00:00+00:00",
+                                                                       "2026-11-06T08:30:00+00:00"]
