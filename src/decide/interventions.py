@@ -113,17 +113,29 @@ def apply_design(net: ta.Network, link_to_edge: list[str], crossings: list[dict]
     return net, links, [{**x, "signalised": True} if x["node"] in signalised else x for x in crossings]
 
 
-def main() -> None:
-    """Load and filter the candidates, and write which were allowed, excluded and unresolved,
-    plus any keep_open clause that abstained, since it can't forbid anything.
+def checked_candidates(graph: sn.RoadGraph, crossings: list[dict]
+                       ) -> tuple[list[dict], list[tuple[str, str]], list[str], list[tuple[str, str]]]:
+    """Load the candidates and clauses and apply the rule filter.
+
+    Returns the allowed candidates, (candidate id, clause id) exclusions, notes on what
+    didn't resolve, and (clause id, reason) for each keep_open clause that abstained,
+    since an abstained clause can't forbid anything.
     """
-    graph = load_graph()
-    candidates, notes = load_candidates(CANDIDATES_PATH, graph, find_crossings(graph))
+    candidates, notes = load_candidates(CANDIDATES_PATH, graph, crossings)
     clauses = load_clauses(CLAUSES_PATH)
     report = check_clauses(clauses, load_sources(clauses, SOURCES_DIR), graph)
     allowed, excluded = filter_candidates(candidates, report.keep_open)
     keep_open_ids = {c["clause_id"] for c in clauses if c["restriction"] == KEEP_OPEN}
     abstained = [(cid, reason) for cid, reason in report.abstained if cid in keep_open_ids]
+    return allowed, excluded, notes, abstained
+
+
+def main() -> None:
+    """Load and filter the candidates, and write which were allowed, excluded and unresolved,
+    plus any keep_open clause that abstained.
+    """
+    graph = load_graph()
+    allowed, excluded, notes, abstained = checked_candidates(graph, find_crossings(graph))
 
     CHECK_PATH.parent.mkdir(parents=True, exist_ok=True)
     CHECK_PATH.write_text(json.dumps({
