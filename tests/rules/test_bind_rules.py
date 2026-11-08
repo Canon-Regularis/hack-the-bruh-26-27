@@ -3,9 +3,9 @@ import json
 
 import pytest
 
-from engine.orchid import street_network as sn
 from src.graph.street_lookup import build_street_lookup
 from src.rules import bind_rules as br
+from tests.rules.rules_graph import build_graph
 
 SOURCES = {"etro": "The Council ... QUOTE ... with exemptions."}
 
@@ -17,21 +17,7 @@ def clause(cid, street, restriction, **overrides):
 
 @pytest.fixture(scope="module")
 def graph():
-    g = sn.RoadGraph()
-    for nid, lon in enumerate([-3.2010, -3.2000, -3.1990, -3.1980, -3.1970]):
-        g.add_node(nid, lat=55.9490, lon=lon)
-    g.add_node(5, lat=55.9500, lon=-3.1980)
-    g.add_node(6, lat=55.9510, lon=-3.1980)
-    no_cars = {"way_id": 1, "motor_vehicle": "no"}
-    g.add_edge(1, 2, oneway=False, street_name="Lawnmarket", osm=no_cars)                 # 0, 1
-    g.add_edge(2, 3, oneway=False, street_name="Lawnmarket", osm=no_cars)                 # 2, 3
-    g.add_edge(0, 1, oneway=False, street_name="Castlehill", osm={"way_id": 2})           # 4, 5
-    g.add_edge(3, 4, oneway=False, street_name="Bank Street",
-               osm={"way_id": 3, "motor_vehicle": "yes", "access": "no"})                 # 6, 7
-    g.add_edge(3, 5, street_name="Upper Bow", osm={"way_id": 4, "oneway": "yes"})         # 8
-    g.add_edge(5, 6, oneway=False, street_name="Victoria Street", highway_class="pedestrian",
-               osm={"way_id": 5})                                                         # 9, 10
-    return g
+    return build_graph()
 
 
 @pytest.fixture(scope="module")
@@ -125,7 +111,7 @@ def test_restriction_flags_one_row_per_directed_edge(graph):
 def test_main_writes_flags_and_prints_summary(graph, tmp_path, monkeypatch, capsys):
     clauses_path, sources_dir = tmp_path / "clauses.json", tmp_path / "sources"
     sources_dir.mkdir()
-    clauses_path.write_text(json.dumps(APPLIED + [ABSTAINED[3][0]]))
+    clauses_path.write_text(json.dumps(APPLIED + [ABSTAINED[3][0], clause("bank-open", "Bank Street", "keep_open")]))
     (sources_dir / "etro.txt").write_text(SOURCES["etro"])
     monkeypatch.setattr(br, "CLAUSES_PATH", clauses_path)
     monkeypatch.setattr(br, "SOURCES_DIR", sources_dir)
@@ -136,8 +122,45 @@ def test_main_writes_flags_and_prints_summary(graph, tmp_path, monkeypatch, caps
 
     out = capsys.readouterr().out
     assert out.startswith("3 of 6 legal restrictions missing or wrong on OSM\n")
+    assert "1 keep-open clauses bound, for the design filter\n" in out
     assert "1 abstained:\n  exempt: exemptions are not listed" in out
     with (tmp_path / "rules" / "restriction_flags.csv").open() as f:
         rows = list(csv.DictReader(f))
     assert len(rows) == graph.num_edges and rows[1] == {"edge_id": "1", "no_motor_vehicles": "1", "one_way": "1",
                                                         "pedestrian_only": "0"}
+
+
+def test_keep_open_clauses_are_bound_but_not_compared_with_osm(graph):
+    keep_bank = clause("bank-open", "Bank Street", "keep_open")
+    report = br.check_clauses(APPLIED + [keep_bank], SOURCES, graph)
+    assert report.keep_open == {"bank-open": {"6", "7"}}
+    assert "bank-open" not in report.applied and "bank-open" not in report.wrong_on_osm
+    assert report.bound == br.check_clauses(APPLIED, SOURCES, graph).bound
+
+
+def test_load_sources_skips_documents_not_cached(tmp_path):
+    (tmp_path / "etro.txt").write_text("text")
+    docs = [{"document_id": "etro"}, {"document_id": "tro-99"}, {"document_id": "etro"}]
+    assert br.load_sources(docs, tmp_path) == {"etro": "text"}
+
+
+def test_keep_open_skips_the_exemptions_and_all_day_checks():
+    servicing = clause("servicing", "Bank Street", "keep_open", times="07:00-10:00", exemptions="unspecified")
+    assert br.abstain_reason(servicing, SOURCES) is None
+    assert br.abstain_reason({**servicing, "quote": "QUOTED"}, SOURCES) == "quote is not word for word in its source"
+
+
+def test_load_clauses_rejects_duplicate_ids(tmp_path):
+    path = tmp_path / "clauses.json"
+    path.write_text(json.dumps([clause("open", "Bank Street", "keep_open"), clause("open", "Castlehill", "keep_open")]))
+    with pytest.raises(ValueError, match="clause ids must be unique"):
+        br.load_clauses(path)
+
+
+def test_report_keeps_each_bound_clauses_own_edges(graph):
+    keep_bank = clause("bank-open", "Bank Street", "keep_open")
+    report = br.check_clauses(APPLIED + [keep_bank] + [c for c, _ in ABSTAINED], SOURCES, graph)
+    assert report.clause_edges == {
+        "lawn-1way": {"1", "3"}, "bow-1way": set(), "lawn-cars": {"0", "1", "2", "3"},
+        "bank-cars": {"6", "7"}, "castle-cars": {"4", "5"}, "vic-ped": {"9", "10"}, "bank-open": {"6", "7"},
+    }

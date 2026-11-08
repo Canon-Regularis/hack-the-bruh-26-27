@@ -18,7 +18,7 @@ OSM_PATH = ROOT / "data" / "raw" / "osm.json"
 GRAPH_DIR = ROOT / "data" / "graph"
 
 KEPT_EDGE_TAGS = ("access", "motor_vehicle", "vehicle", "bus", "psv", "foot", "bicycle", "oneway")
-KEPT_NODE_TAGS = ("highway", "crossing")
+KEPT_NODE_TAGS = ("highway", "crossing", "crossing_ref", "crossing:markings")
 SPLIT_NODE_HIGHWAYS = frozenset({"traffic_signals", "crossing"})
 BUS_STOP_PUBLIC_TRANSPORT = frozenset({"platform", "stop_position"})
 

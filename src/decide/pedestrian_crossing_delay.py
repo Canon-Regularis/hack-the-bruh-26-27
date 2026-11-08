@@ -1,6 +1,10 @@
 """Pedestrian crossing delay, level of service and the baseline J_ped (ALG-S1-7, #45).
 
-Crossing widths, signal timings and pedestrian densities are assumed, not measured.
+Signalised crossings wait for the green. Zebras give pedestrians priority, so they wait only
+for traffic to yield. Other unsignalised crossings use Adams' gap-acceptance delay, capped at
+MAX_WAIT_S, past which pedestrians force a gap (HCM rates waits over 45 s as LOS F); uncapped,
+Adams' delay grows exponentially with traffic. Crossing widths, signal timings, the zebra
+delay, the cap and pedestrian densities are assumed, not measured.
 Run from the repo root: ``python -m src.decide.pedestrian_crossing_delay``.
 """
 
@@ -19,15 +23,20 @@ CROSSINGS_PATH = ROOT / "data" / "demand" / "pedestrian_crossing_delay.csv"
 J_PED_PATH = ROOT / "data" / "demand" / "pedestrian_crossing_delay.json"
 
 LANE_WIDTH_M = 3.25
+WALKING_SPEED_MPS = 1.2
 CYCLE_S = 90.0
 WALK_GREEN_S = 8.0
+ZEBRA_DELAY_S = 3.0
+MAX_WAIT_S = 60.0
+ZEBRA_REFS = frozenset({"zebra", "tiger"})
 SYNTHETIC_DENSITIES = {"quiet": 0.5, "busy": 1.5, "festival_peak": 3.0}
 CROSSING_FIELDS = ("node", "edge_ids", "control", "width_m", "vehicle_flow_veh_h", "delay_s", "los")
 
 
 def find_crossings(graph: sn.RoadGraph) -> list[dict]:
     """Return every highway=crossing node on a car road: node id, the str ids of the car edges entering it,
-    whether it's signalised (crossing=traffic_signals), and its width (lanes crossed x LANE_WIDTH_M).
+    whether it's signalised (crossing=traffic_signals) or a zebra (crossing_ref zebra or tiger,
+    zebra markings, or the old crossing=zebra), and its width (lanes crossed x LANE_WIDTH_M).
 
     On a two-way road the entering edges are one per direction, so their lanes add up to the full width.
     """
@@ -38,10 +47,13 @@ def find_crossings(graph: sn.RoadGraph) -> list[dict]:
             continue
         car_edges = [edge for edge in map(graph.edge, graph.in_edges(node.node_id)) if edge.permits("car")]
         if car_edges:
+            signalised = osm.get("crossing") == "traffic_signals"
             crossings.append({
                 "node": node.node_id,
                 "edge_ids": [str(edge.eid) for edge in car_edges],
-                "signalised": osm.get("crossing") == "traffic_signals",
+                "signalised": signalised,
+                "zebra": not signalised and (osm.get("crossing_ref") in ZEBRA_REFS or osm.get("crossing") == "zebra"
+                                             or osm.get("crossing:markings", "").startswith("zebra")),
                 "width_m": LANE_WIDTH_M * sum(edge.lanes for edge in car_edges),
             })
     return crossings
@@ -53,18 +65,41 @@ def load_flows(ue_path: Path = UE_PATH) -> dict[str, float]:
         return {row["edge_id"]: float(row["flow_veh_h"]) for row in csv.DictReader(f)}
 
 
-def crossing_delays(crossings: list[dict], flows: dict[str, float]) -> list[pf.CrossingDelayResult]:
-    """Return each crossing's delay, using the summed flow on the edges it crosses.
+def _fixed_delay(control: str, width_m: float, delay_s: float, detail: dict) -> pf.CrossingDelayResult:
+    crossing_time = width_m / WALKING_SPEED_MPS
+    return pf.CrossingDelayResult(control, delay_s, crossing_time, delay_s + crossing_time, None, 1,
+                                  pf.pedestrian_delay_los(delay_s).grade, detail)
+
+
+def _unsignalised_delay(width_m: float, vehicle_flow: float) -> pf.CrossingDelayResult:
+    """Adams' gap-acceptance delay, or MAX_WAIT_S when that is longer."""
+    try:
+        result = pf.crossing_delay(width_m, control="unsignalised", vehicle_flow=vehicle_flow,
+                                   walking_speed=WALKING_SPEED_MPS)
+        if result.delay <= MAX_WAIT_S:
+            return result
+    except pf.PedestrianFlowError:
+        pass  # orchid: the crossing never clears, so far past the cap
+    return _fixed_delay("unsignalised-capped", width_m, MAX_WAIT_S, {"combinedFlow": vehicle_flow})
+
+
+def crossing_delay(crossing: dict, flows: dict[str, float]) -> pf.CrossingDelayResult:
+    """Return one crossing's delay: the signal wait, the zebra wait, or Adams' delay capped at
+    MAX_WAIT_S on the summed flow of the edges it crosses.
 
     An edge missing from flows carries no traffic, e.g. one a design has closed.
     """
-    return [
-        pf.crossing_delay(c["width_m"], control="signalised", cycle=CYCLE_S, walk_green=WALK_GREEN_S)
-        if c["signalised"] else
-        pf.crossing_delay(c["width_m"], control="unsignalised",
-                          vehicle_flow=math.fsum(flows.get(eid, 0.0) for eid in c["edge_ids"]))
-        for c in crossings
-    ]
+    if crossing["signalised"]:
+        return pf.crossing_delay(crossing["width_m"], control="signalised", cycle=CYCLE_S, walk_green=WALK_GREEN_S,
+                                 walking_speed=WALKING_SPEED_MPS)
+    if crossing["zebra"]:
+        return _fixed_delay("zebra", crossing["width_m"], ZEBRA_DELAY_S, {})
+    return _unsignalised_delay(crossing["width_m"], math.fsum(flows.get(eid, 0.0) for eid in crossing["edge_ids"]))
+
+
+def crossing_delays(crossings: list[dict], flows: dict[str, float]) -> list[pf.CrossingDelayResult]:
+    """Return each crossing's delay, as crossing_delay does."""
+    return [crossing_delay(c, flows) for c in crossings]
 
 
 def j_ped(crossings: list[dict], flows: dict[str, float]) -> float:
@@ -99,7 +134,8 @@ def main() -> None:
         "crossings": len(crossings),
         "signalised": sum(c["signalised"] for c in crossings),
         "flows_from": UE_PATH.name,
-        "assumed": {"lane_width_m": LANE_WIDTH_M, "cycle_s": CYCLE_S, "walk_green_s": WALK_GREEN_S},
+        "assumed": {"lane_width_m": LANE_WIDTH_M, "walking_speed_mps": WALKING_SPEED_MPS, "cycle_s": CYCLE_S,
+                    "walk_green_s": WALK_GREEN_S, "zebra_delay_s": ZEBRA_DELAY_S, "max_wait_s": MAX_WAIT_S},
         "synthetic_fruin_los": {"facility": "queueing", "densities_p_per_m2": SYNTHETIC_DENSITIES,
                                 "grades": fruin_levels()},
     }, indent=1), encoding="utf-8")
