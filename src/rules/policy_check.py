@@ -60,7 +60,7 @@ def summary(rows: list[dict]) -> str:
 
 
 def main() -> None:
-    """Check #29's three picks against #20's clauses and write the rows and summaries."""
+    """Check #29's picks (three, or four with voice-best) against #20's clauses and write the rows and summaries."""
     picks = json.loads(TRADE_OFFS_PATH.read_text(encoding="utf-8"))["picks"]
     graph = load_graph()
     car_edges = set(link_maps(to_network(graph)[0])[1])

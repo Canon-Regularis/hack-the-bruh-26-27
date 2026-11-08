@@ -46,7 +46,9 @@ counts in those READMEs are out of date.
 their hunts haven't converged:
 
 - `public_voice`: rounds 6 and 7 found and fixed 5 and 4 template bugs, so a later round may
-  find more. Sanity-check every number from it before showing it.
+  find more. Sanity-check every number from it before showing it. Our concern hotspots (#35,
+  `src/concerns/hotspots.py`) and J_voice (#36, `src/decide/voice_objective.py`) don't use it;
+  they are built on numpy, scipy and networkx.
 - `policy_compiler`: see the caveat below.
 
 To enable one once it's fixed:
