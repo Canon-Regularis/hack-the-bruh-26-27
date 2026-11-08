@@ -148,10 +148,16 @@ def traffic_layer(ue_path: Path = UE_PATH, meta_path: Path = UE_META_PATH) -> tu
     return ue, json.loads(meta_path.read_text(encoding="utf-8"))["hour"]
 
 
-def osm_says(edge: sn.RoadEdge) -> str:
-    """Return what OSM says about an edge's access, e.g. "highway=pedestrian, motor_vehicle=private"."""
+def osm_says(edge: sn.RoadEdge, restriction: str = "") -> str:
+    """Return what OSM says about an edge's access, e.g. "highway=pedestrian, motor_vehicle=private".
+
+    A one-way clause binds only edges against its direction, so for one_way say which way OSM runs.
+    """
     tags = edge.tags["osm"]
-    return ", ".join([f"highway={edge.highway_class}", *(f"{k}={tags[k]}" for k in OSM_TAGS_SHOWN if k in tags)])
+    said = ", ".join([f"highway={edge.highway_class}", *(f"{k}={tags[k]}" for k in OSM_TAGS_SHOWN if k in tags)])
+    if restriction == "one_way":
+        return f"{'two-way' if edge.reverse_eid is not None else 'one-way the opposite way'} ({said})"
+    return said
 
 
 def _metres(edges: list[sn.RoadEdge]) -> int:
@@ -192,7 +198,7 @@ def rules_layer(graph: sn.RoadGraph, clauses_path: Path = CLAUSES_PATH, sources_
                      "exemptions": c["exemptions"], "status": status, "reason": abstained.get(cid),
                      "edges": len(edges), "osm_wrong_edges": len(wrong), "length_m": _metres(edges),
                      "osm_wrong_m": _metres([e for e in edges if e.eid in wrong]),
-                     "osm_says": sorted({osm_says(e) for e in edges if e.eid in wrong})})
+                     "osm_says": sorted({osm_says(e, c["restriction"]) for e in edges if e.eid in wrong})})
         for e in edges:
             restriction, agrees = edge_rule.get(str(e.eid), (c["restriction"], True))
             edge_rule[str(e.eid)] = (restriction, agrees and e.eid not in wrong)

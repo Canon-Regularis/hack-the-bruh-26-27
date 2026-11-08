@@ -192,6 +192,17 @@ def test_rules_layer_shows_the_osm_tags_it_disagrees_with(tmp_path):
     assert row["osm_says"] == [f"highway={g.edge(6).highway_class}, access=no, motor_vehicle=yes"]
 
 
+def test_rules_layer_says_which_way_osm_runs_a_street_a_one_way_clause_disagrees_with(tmp_path):
+    g = rules_graph()
+    rows, _, _ = export.rules_layer(g, *_clause_files(tmp_path, [
+        clause("lawn", "Lawnmarket", "one_way", from_street="Castlehill", to_street="Bank Street"),
+        clause("bow", "Upper Bow", "one_way", from_street="Victoria Street", to_street="Bank Street"),
+    ]))
+    says = {r["id"]: r["osm_says"] for r in rows}
+    assert says["lawn"][0].startswith("two-way (highway=")
+    assert says["bow"][0].startswith("one-way the opposite way (highway=")
+
+
 def test_rules_layer_is_none_without_clauses(tmp_path):
     assert export.rules_layer(rules_graph(), tmp_path / "clauses.json", tmp_path) is None
 
