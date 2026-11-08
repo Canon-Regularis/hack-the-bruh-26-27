@@ -42,6 +42,8 @@ def load_candidates(path: Path, graph: sn.RoadGraph, crossings: list[dict]) -> t
         raise ValueError(f"{path}: unknown kinds {sorted(unknown)}; use {', '.join(KINDS)}")
     if missing := [c["id"] for c in raw if c["kind"] == REALLOCATE and "capacity_factor" not in c]:
         raise ValueError(f"{path}: reallocate candidates need a capacity_factor: {missing}")
+    if bad := [c["id"] for c in raw if c.get("capacity_factor", 1.0) <= 0]:
+        raise ValueError(f"{path}: capacity_factor must be above 0: {bad}")
 
     found, unresolved = find_streets(build_street_lookup(graph),
                                      sorted({c["street"] for c in raw if c["kind"] != SIGNALISE}))
@@ -50,11 +52,13 @@ def load_candidates(path: Path, graph: sn.RoadGraph, crossings: list[dict]) -> t
     candidates = []
     for c in raw:
         if c["kind"] == SIGNALISE:
-            edges = unsignalised.get(c["node"])
+            node = int(c["node"])
+            edges = unsignalised.get(node)
             if edges is None:
-                notes.append(f"node {c['node']} is not an unsignalised crossing ({c['id']})")
+                notes.append(f"node {node} is not an unsignalised crossing ({c['id']})")
                 continue
         else:
+            node = None
             edges = found.get(c["street"])
             if edges is None:
                 continue
@@ -62,7 +66,7 @@ def load_candidates(path: Path, graph: sn.RoadGraph, crossings: list[dict]) -> t
                 notes.append(f"{c['street']!r} has no car edges, so {c['id']} changes nothing")
                 continue
         candidates.append({"id": c["id"], "kind": c["kind"], "edges": frozenset(edges),
-                           "capacity_factor": c.get("capacity_factor"), "node": c.get("node")})
+                           "capacity_factor": c.get("capacity_factor"), "node": node})
     return candidates, notes
 
 

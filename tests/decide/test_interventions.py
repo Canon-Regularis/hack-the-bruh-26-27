@@ -76,6 +76,10 @@ def test_load_candidates_resolves_edges_and_notes_what_failed(loaded, found):
     ([CANDIDATES[0], CANDIDATES[0]], "candidate ids must be unique"),
     ([{"id": "x", "kind": "widen", "street": "Bank Street"}], r"unknown kinds \['widen'\]"),
     ([{"id": "x", "kind": "reallocate", "street": "Bank Street"}], r"reallocate candidates need a capacity_factor: \['x'\]"),
+    ([{"id": "x", "kind": "reallocate", "street": "Bank Street", "capacity_factor": 0}],
+     r"capacity_factor must be above 0: \['x'\]"),
+    ([{"id": "y", "kind": "signalise_crossing", "node": 1, "capacity_factor": -0.5}],
+     r"capacity_factor must be above 0: \['y'\]"),
 ])
 def test_load_candidates_rejects_bad_files(graph, crossings, tmp_path, raw, message):
     path = tmp_path / "candidates.json"
@@ -191,3 +195,10 @@ def test_load_candidates_drops_streets_without_car_edges(tmp_path):
     candidates, notes = iv.load_candidates(path, g, find_crossings(g))
     assert [c["id"] for c in candidates] == ["close-bank"]
     assert notes == ["'Royal Mile' has no car edges, so close-rm changes nothing"]
+
+
+def test_load_candidates_accepts_a_crossing_node_written_as_a_string(graph, crossings, tmp_path):
+    path = tmp_path / "candidates.json"
+    path.write_text(json.dumps([{"id": "signal-lothian", "kind": "signalise_crossing", "node": "1"}]))
+    candidates, notes = iv.load_candidates(path, graph, crossings)
+    assert [(c["id"], c["node"], c["edges"]) for c in candidates] == [("signal-lothian", 1, {"0", "3"})] and not notes
