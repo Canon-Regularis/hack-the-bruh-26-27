@@ -86,6 +86,7 @@ def test_bind_raises_with_reason(graph, lookup, c, reason):
     ("pedestrian_only", 9, True),
     ("pedestrian_only", 0, False),
     ("one_way", 1, False),             # a bound one-way edge is traffic OSM allows against the rule
+    ("one_way", 9, True),              # cars can't use a pedestrian street either way
 ])
 def test_osm_agrees(graph, restriction, eid, expected):
     assert br.osm_agrees(restriction, graph.edge(eid)) is expected

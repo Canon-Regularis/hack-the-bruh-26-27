@@ -162,7 +162,7 @@ def bind(clause: dict, graph: sn.RoadGraph, lookup: dict[str, list[str]]) -> lis
 def osm_agrees(restriction: str, edge: sn.RoadEdge) -> bool:
     """Return True if the edge's OSM tags already show the restriction.
 
-    For one_way the bound edges run against the rule, so OSM letting traffic use them is a disagreement.
+    For one_way the bound edges run against the rule, so OSM letting cars use them is a disagreement.
     """
     if restriction == "pedestrian_only":
         return edge.highway_class == "pedestrian"
@@ -170,7 +170,7 @@ def osm_agrees(restriction: str, edge: sn.RoadEdge) -> bool:
         osm = edge.tags["osm"]
         value = osm.get("motor_vehicle") or osm.get("vehicle") or osm.get("access")
         return value == "no" if value else "car" not in edge.modes_permitted
-    return False
+    return "car" not in edge.modes_permitted
 
 
 def check_clauses(clauses: list[dict], sources: dict[str, str], graph: sn.RoadGraph) -> Report:
