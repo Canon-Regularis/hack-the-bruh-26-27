@@ -13,6 +13,7 @@ from model.evaluate import (
     build_report,
     evaluate,
     leakage_check,
+    median_guess,
     score_fold,
 )
 from model.metrics import mae, skill
@@ -186,10 +187,62 @@ def test_the_model_beats_baseline_1_when_there_is_signal():
     assert results["street_split"]["skill_vs_baseline_1"] > 0.3
 
 
-def test_a_model_on_shuffled_targets_does_not_beat_baseline_1():
-    check = leakage_check(learnable_table(), MIDPOINTS, seed=1)
-    assert check["skill_vs_baseline_1"] <= LEAKAGE_TOLERANCE
+def test_the_median_guess_is_the_training_median_for_every_test_row():
+    train = table([row("e1", 0, 10.0), row("e2", 0, 12.0), row("e3", 0, 50.0)])
+    test = table([row("e4", 0, 1000.0), row("e4", 15, -5.0)])
+    assert list(median_guess(train, test)) == [12.0, 12.0]
+
+
+def test_a_model_on_shuffled_targets_does_not_beat_the_median_guess():
+    check = leakage_check(learnable_table(), seeds=(1, 2))
+    assert check["skill_vs_median_guess"] <= LEAKAGE_TOLERANCE
     assert check["leakage_suspected"] is False
+
+
+def skewed_noise_table(seed=0):
+    """No signal and a long tail of fast rows, like real bus-observed speeds."""
+    rng = random.Random(seed)
+    rows = []
+    for index in range(40):
+        rank = rng.choice([3, 4, 5, 7])
+        length = rng.uniform(20, 400)
+        for minutes in range(0, 240, 15):
+            speed = rng.expovariate(1 / 10) + 2
+            rows.append(row(f"m{index}", minutes, speed, rank=rank, length_m=length,
+                            lanes=1.0, weekday=5))
+    return table(rows)
+
+
+def test_skewed_targets_alone_do_not_flag_a_leak():
+    check = leakage_check(skewed_noise_table(), seeds=(0, 1))
+    assert check["leakage_suspected"] is False
+
+
+def fake_shuffled_skill(skills):
+    """Stand in for shuffled_skill, returning the given skill for each shuffle in turn."""
+    remaining = iter(skills)
+    return lambda *args, **kwargs: next(remaining)
+
+
+def test_leakage_check_averages_the_skill_over_every_seed(monkeypatch):
+    monkeypatch.setattr("model.evaluate.shuffled_skill", fake_shuffled_skill([0.03, 0.0, 0.0]))
+    check = leakage_check(learnable_table(), seeds=(0, 1, 2))
+    assert check["seeds"] == [0, 1, 2]
+    assert check["skill_per_seed"] == [0.03, 0.0, 0.0]
+    assert check["skill_vs_median_guess"] == pytest.approx(0.01)
+
+
+def test_one_lucky_shuffle_does_not_flag_a_leak(monkeypatch):
+    monkeypatch.setattr("model.evaluate.shuffled_skill",
+                        fake_shuffled_skill([0.05, 0.0, 0.0, 0.0, 0.0]))
+    check = leakage_check(learnable_table(), seeds=(0, 1, 2, 3, 4))
+    assert check["leakage_suspected"] is False
+
+
+def test_shuffles_that_beat_the_median_guess_on_average_flag_a_leak(monkeypatch):
+    monkeypatch.setattr("model.evaluate.shuffled_skill", fake_shuffled_skill([0.03, 0.03, 0.03]))
+    check = leakage_check(learnable_table(), seeds=(0, 1, 2))
+    assert check["leakage_suspected"] is True
 
 
 # --- Report ---

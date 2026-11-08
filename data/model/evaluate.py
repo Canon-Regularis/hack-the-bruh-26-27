@@ -1,8 +1,11 @@
 """Score the model against both baselines on held-out streets and held-out hours.
 
 Every method is fitted on each fold's training rows only, and scored on the
-same test rows. The leakage check retrains on shuffled targets: if that still
-beats baseline 1, something is leaking.
+same test rows. The leakage check retrains on shuffled targets several times:
+if that beats a constant guess of the training median on average, something
+is leaking. The median, not baseline 1, is the reference because an L1 model
+on shuffled targets learns the median, which beats a mean on skewed speeds
+without any leak.
 """
 
 import platform
@@ -18,6 +21,7 @@ from model.speed_model import MODEL_PARAMS, fit_predict
 from model.splits import street_folds, time_folds
 
 LEAKAGE_TOLERANCE = 0.02
+LEAKAGE_SEEDS = (0, 1, 2, 3, 4)
 N_STREET_SPLITS = 5
 N_TIME_SPLITS = 3
 
@@ -81,19 +85,40 @@ def evaluate(table, midpoints, n_street_splits=N_STREET_SPLITS, n_time_splits=N_
         "time_split": run_split(
             table, time_folds(table, n_time_splits), midpoints, "latest_bin"
         ),
-        "leakage_check": leakage_check(table, midpoints, n_splits=n_street_splits),
+        "leakage_check": leakage_check(table, n_splits=n_street_splits),
     }
 
 
-def leakage_check(table, midpoints, seed=0, n_splits=N_STREET_SPLITS):
-    """Retrain on shuffled targets. Beating baseline 1 then would mean a leak."""
+def median_guess(train, test):
+    """Predict the training rows' median speed for every test row."""
+    return np.full(len(test), float(train[TARGET].median()))
+
+
+def shuffled_skill(table, seed, n_splits):
+    """Skill vs the median guess of a model retrained on targets shuffled with this seed."""
     shuffled = table.reset_index(drop=True).copy()
     shuffled[TARGET] = np.random.default_rng(seed).permutation(shuffled[TARGET].to_numpy())
-    result = run_split(shuffled, street_folds(shuffled, n_splits), midpoints, "same_bin")
-    gain = result["skill_vs_baseline_1"]
+    truth, model, guess = [], [], []
+    for train_rows, test_rows in street_folds(shuffled, n_splits):
+        train, test = shuffled.iloc[train_rows], shuffled.iloc[test_rows]
+        truth.append(test[TARGET].to_numpy())
+        model.append(fit_predict(train, test))
+        guess.append(median_guess(train, test))
+    truth = np.concatenate(truth)
+    return skill(mae(truth, np.concatenate(model)), mae(truth, np.concatenate(guess)))
+
+
+def leakage_check(table, seeds=LEAKAGE_SEEDS, n_splits=N_STREET_SPLITS):
+    """Retrain on shuffled targets, once per seed. Beating the median guess on average means a leak.
+
+    Averaging over several shuffles stops one lucky shuffle from flagging a leak.
+    """
+    skills = [shuffled_skill(table, seed, n_splits) for seed in seeds]
+    gain = float(np.mean(skills))
     return {
-        "seed": seed,
-        "skill_vs_baseline_1": gain,
+        "seeds": list(seeds),
+        "skill_per_seed": skills,
+        "skill_vs_median_guess": gain,
         "tolerance": LEAKAGE_TOLERANCE,
         "leakage_suspected": bool(gain > LEAKAGE_TOLERANCE),
     }
@@ -111,6 +136,7 @@ def build_report(table, results, extra_config):
             "n_time_splits": N_TIME_SPLITS,
             "lag_bins": LAG_BINS,
             "leakage_tolerance": LEAKAGE_TOLERANCE,
+            "leakage_seeds": list(LEAKAGE_SEEDS),
             **extra_config,
         },
         "data": {
