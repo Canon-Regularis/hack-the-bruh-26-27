@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { busiestBin, indexStreets, loadData, ruledStreets, type Data, type LayerId, type RuledStreet } from './data';
+import {
+  busiestBin, concernStreets, indexStreets, loadData, ruledStreets,
+  type Clause, type ConcernStreet, type Data, type LayerId, type RuledStreet,
+} from './data';
 import MapView, { CONCERN_RAMP, RULE, SERIES, SPEED_RAMP, TRAFFIC_RAMP, type MapApi } from './MapView';
 import Inspector from './Inspector';
-import { BasisChip, ErrorBoundary, Icon, fmt, fmtPct, fmtTime, reasonLabel, restrictionLabel } from './ui';
+import { BasisChip, ErrorBoundary, Icon, fmt, fmtPct, fmtTime, reasonLabel, restrictionLabel, themeLabel } from './ui';
 
 const PLAY_STEP_MS = 900;
 const SPEED_TOP = SPEED_RAMP.at(-1)![0];
@@ -57,9 +60,9 @@ function SpeedKey({ data, speed }: { data: Data; speed: SpeedControls }) {
 type ActId = 'rules' | 'complaints' | 'traffic' | 'designs';
 
 const ACTS: { id: ActId; title: string; blurb: string; layers: LayerId[] }[] = [
-  { id: 'rules', title: 'Rules', blurb: 'What the traffic orders say, and where OpenStreetMap disagrees', layers: ['rules'] },
-  { id: 'complaints', title: 'Complaints', blurb: 'Where consultation concerns cluster, by theme', layers: ['concerns'] },
   { id: 'traffic', title: 'Traffic', blurb: 'Bus-observed speeds, modelled car flows, crossings and counts', layers: ['speeds', 'traffic', 'crossings', 'counts'] },
+  { id: 'rules', title: 'Rules', blurb: 'What the traffic orders say, and where OpenStreetMap disagrees', layers: ['rules'] },
+  { id: 'complaints', title: 'Complaints', blurb: 'Streets named in published consultation material, by theme', layers: ['concerns'] },
   { id: 'designs', title: 'Designs', blurb: 'Street designs that obey the rules and hold up on bad days', layers: ['designs'] },
 ];
 
@@ -125,15 +128,132 @@ function Search({ names, onPick }: { names: string[]; onPick(name: string): void
   );
 }
 
+type Mark = 'solid' | 'dashed' | 'dotted';
+
+function Tile({ value, label, colour, mark = 'solid' }: { value: number; label: string; colour: string; mark?: Mark }) {
+  return (
+    <div className="tile">
+      <i className={`line ${mark}`} style={{ color: colour }} />
+      <strong>{fmt(value)}</strong>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+interface ListRow {
+  name: string;
+  detail: string;
+  colour: string;
+  mark?: Mark;
+  warn?: boolean;
+}
+
+function StreetList({ rows, onPick }: { rows: ListRow[]; onPick(name: string): void }) {
+  return (
+    <ul className="street-list">
+      {rows.map((r) => (
+        <li key={r.name}>
+          <button onClick={() => onPick(r.name)}>
+            <i className={`line ${r.mark ?? 'solid'}`} style={{ color: r.colour }} />
+            <strong>{r.name}</strong>
+            <span className={r.warn ? 'warn' : ''}>{r.detail}</span>
+            <Icon name="chevron" size={16} />
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function RulesKey({ data, ruled, onPick }: { data: Data; ruled: RuledStreet[]; onPick(name: string): void }) {
+  const meta = data.meta.layers.rules!;
+  const live = ruled.filter((s) => s.live > 0);
+  const named = ruled.filter((s) => s.live === 0);
+  const held = (data.rules ?? []).filter((c) => c.status === 'abstained');
+  const reasons = new Map<string, Clause[]>();
+  for (const c of held) {
+    const why = reasonLabel(c.reason, c.restriction);
+    reasons.set(why, [...(reasons.get(why) ?? []), c]);
+  }
+  return (
+    <div className="key">
+      <div className="tiles">
+        <Tile value={meta.applied ?? 0} label="in force" colour={RULE.agrees} />
+        <Tile value={meta.osm_wrong ?? 0} label="OSM disagrees" colour={RULE.disagrees} mark="dashed" />
+        <Tile value={meta.abstained ?? held.length} label="held back" colour={RULE.held} mark="dotted" />
+      </div>
+      {live.length > 0 && (
+        <>
+          <p className="eyebrow list-title">In force</p>
+          <StreetList onPick={onPick} rows={live.map((s) => ({
+            name: s.name, colour: s.disagrees ? RULE.disagrees : RULE.agrees, mark: s.disagrees ? 'dashed' : 'solid',
+            warn: s.disagrees, detail: s.disagrees ? 'OSM disagrees' : 'OSM agrees',
+          }))} />
+        </>
+      )}
+      {named.length > 0 && (
+        <details className="fold">
+          <summary>{named.length} more {named.length === 1 ? 'street' : 'streets'} named but not applied</summary>
+          <StreetList onPick={onPick} rows={named.map((s) => ({ name: s.name, colour: RULE.held, mark: 'dotted', detail: `${s.held} held` }))} />
+        </details>
+      )}
+      {reasons.size > 0 && (
+        <details className="fold">
+          <summary>Why {held.length} {held.length === 1 ? 'clause is' : 'clauses are'} held back</summary>
+          <ul className="reasons">
+            {[...reasons].sort((a, b) => b[1].length - a[1].length).map(([why, clauses]) => (
+              <li key={why}>
+                <strong>{why}</strong>
+                <span>{clauses.length} · {[...new Set(clauses.map((c) => restrictionLabel(c.restriction)))].join(', ')}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      <p className="note">{meta.note}</p>
+    </div>
+  );
+}
+
+function ConcernsKey({ data, named, onPick }: { data: Data; named: ConcernStreet[]; onPick(name: string): void }) {
+  const themes = new Map<string, number>();
+  for (const s of named) for (const t of s.themes) themes.set(t, (themes.get(t) ?? 0) + 1);
+  const sources = [...new Set(Object.values(data.concerns ?? {}).flat().map((c) => c.source).filter(Boolean))];
+  const graded = named.some((s) => s.mentions > 1);
+  return (
+    <div className="key">
+      <div className="tiles">
+        <Tile value={named.length} label={named.length === 1 ? 'street named' : 'streets named'} colour={CONCERN_RAMP[1][1]} />
+        <Tile value={themes.size} label={themes.size === 1 ? 'theme' : 'themes'} colour={CONCERN_RAMP[2][1]} />
+      </div>
+      <div className="themes">
+        {[...themes].sort((a, b) => b[1] - a[1]).map(([t, n]) => <span key={t} className="theme">{themeLabel(t)}<b>{n}</b></span>)}
+      </div>
+      {graded && <p>Darker lines were raised more often.</p>}
+      {named.length > 0 && (
+        <>
+          <p className="eyebrow list-title">Streets</p>
+          <StreetList onPick={onPick} rows={named.map((s) => ({
+            name: s.name, colour: CONCERN_RAMP[1][1],
+            detail: graded ? `${fmt(s.mentions)} mentions` : themes.size > 1 ? s.themes.map(themeLabel).join(', ') : '',
+          }))} />
+        </>
+      )}
+      {sources.map((src) => <p key={src} className="source">{src}</p>)}
+    </div>
+  );
+}
+
 interface KeyProps {
   layer: LayerId;
   data: Data;
   ruled: RuledStreet[];
+  named: ConcernStreet[];
   speed: SpeedControls;
   onPick(name: string): void;
 }
 
-function Key({ layer, data, ruled, speed, onPick }: KeyProps) {
+function Key({ layer, data, ruled, named, speed, onPick }: KeyProps) {
   if (layer === 'speeds' && data.speeds) return <SpeedKey data={data} speed={speed} />;
   if (layer === 'traffic') {
     const stops = TRAFFIC_RAMP.map(([v, c]) => `${c} ${(v / 1.1) * 100}%`).join(', ');
@@ -151,48 +271,8 @@ function Key({ layer, data, ruled, speed, onPick }: KeyProps) {
   if (layer === 'counts') {
     return <div className="key inline"><span className="dot" style={{ background: SERIES.counts }} /><p>Count point, labelled with vehicles per day</p></div>;
   }
-  if (layer === 'rules') {
-    const meta = data.meta.layers.rules!;
-    const held = (data.rules ?? []).filter((c) => c.status === 'abstained');
-    return (
-      <div className="key">
-        <div className="key inline"><span className="swatch" style={{ background: RULE.agrees }} /><p>In force, and OpenStreetMap agrees</p></div>
-        <div className="key inline"><span className="swatch dashed" style={{ color: RULE.disagrees }} /><p>In force, but OpenStreetMap disagrees</p></div>
-        <div className="key inline"><span className="swatch dashed" style={{ color: RULE.held }} /><p>Named in an order but not applied: see the abstention queue</p></div>
-        <p>{meta.applied} applied · {meta.osm_wrong} where OpenStreetMap disagrees · {meta.abstained} abstained for review</p>
-        {ruled.length > 0 && (
-          <ul className="rule-streets" aria-label="Streets named in the orders">
-            {ruled.map((s) => (
-              <li key={s.name}>
-                <button onClick={() => onPick(s.name)}>
-                  <strong>{s.name}</strong>
-                  <span>{[s.live && `${s.live} in force`, s.held && `${s.held} held`].filter(Boolean).join(' · ')}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        {held.length > 0 && (
-          <details className="held">
-            <summary>Abstention queue</summary>
-            <ul>
-              {held.map((c) => (
-                <li key={c.id}><strong>{c.streets.join(', ')}: {restrictionLabel(c.restriction)}</strong><span>{reasonLabel(c.reason, c.restriction)}</span></li>
-              ))}
-            </ul>
-          </details>
-        )}
-      </div>
-    );
-  }
-  if (layer === 'concerns') {
-    return (
-      <div className="key">
-        <div className="key inline"><span className="swatch" style={{ background: CONCERN_RAMP[1][1] }} /><p>Raised in published consultation material; darker means raised more often</p></div>
-        <p>{data.meta.layers.concerns!.note}</p>
-      </div>
-    );
-  }
+  if (layer === 'rules') return <RulesKey data={data} ruled={ruled} onPick={onPick} />;
+  if (layer === 'concerns') return <ConcernsKey data={data} named={named} onPick={onPick} />;
   return null;
 }
 
@@ -200,7 +280,7 @@ export default function App() {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [act, setAct] = useState<ActId>('traffic');
-  const [hidden, setHidden] = useState<Set<LayerId>>(new Set(['crossings']));
+  const [hidden, setHidden] = useState<Set<LayerId>>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
   const [notices, setNotices] = useState<string[]>([]);
   const [bin, setBin] = useState(0);
@@ -232,6 +312,7 @@ export default function App() {
   const streets = useMemo(() => (data ? indexStreets(data) : new Map()), [data]);
   const names = useMemo(() => [...streets.keys()].sort(), [streets]);
   const ruled = useMemo(() => ruledStreets(streets), [streets]);
+  const named = useMemo(() => concernStreets(streets), [streets]);
   const current = ACTS.find((a) => a.id === act)!;
   const has = (layer: LayerId) => Boolean(data?.meta.layers[layer]);
   const bins = data?.speeds?.bins.length ?? 0;
@@ -288,12 +369,11 @@ export default function App() {
                 <button className="icon-btn" onClick={() => setSelected(null)} aria-label="Close"><Icon name="close" /></button>
               </aside>
             )}>
-              <Inspector info={info} meta={data.meta} speeds={data.speeds} bin={bin} onClose={() => setSelected(null)} />
+              <Inspector info={info} meta={data.meta} speeds={data.speeds} bin={bin} focus={current.layers} onClose={() => setSelected(null)} />
             </ErrorBoundary>
           )}
 
           <section className="act" aria-label="Layers">
-            <p className="eyebrow">Act {ACTS.indexOf(current) + 1} of {ACTS.length}</p>
             <h2>{current.title}</h2>
             <p className="blurb">{current.blurb}</p>
             {current.layers.map((layer) => {
@@ -305,7 +385,7 @@ export default function App() {
                     <span className="layer-title">{LAYER_TITLE[layer]}</span>
                     {meta ? <BasisChip basis={meta.basis} /> : <span className="soon">No data yet</span>}
                   </label>
-                  {visible[layer] && data && <Key layer={layer} data={data} ruled={ruled} speed={speed} onPick={showStreet} />}
+                  {visible[layer] && data && <Key layer={layer} data={data} ruled={ruled} named={named} speed={speed} onPick={showStreet} />}
                 </div>
               );
             })}

@@ -34,7 +34,7 @@ const DASHED = { 'line-cap': 'butt', 'line-join': 'round' } as const;
 
 const GROUPS: Partial<Record<LayerId, string[]>> = {
   rules: ['rules-held', 'rules-case', 'rules', 'rules-wrong-case', 'rules-wrong'],
-  concerns: ['concerns'],
+  concerns: ['concerns-case', 'concerns'],
   speeds: ['city-speeds-case', 'city-speeds', 'speeds-case', 'speeds', 'speeds-predicted'],
   traffic: ['traffic-case', 'traffic'],
   crossings: ['crossings'],
@@ -149,23 +149,25 @@ function addLayers(map: MLMap, data: Data, online: boolean) {
       paint: { 'line-color': colour, 'line-width': byZoom(2.5, 7), 'line-dasharray': [1.2, 0.9] } }, labels);
   }
 
+  map.addLayer({ id: 'concerns-case', type: 'line', source: 'network', filter: ['has', 'concern'], layout: ROUND,
+    paint: { 'line-color': '#ffffff', 'line-width': byZoom(7, 16) } }, labels);
   map.addLayer({ id: 'concerns', type: 'line', source: 'network', filter: ['has', 'concern'], layout: ROUND,
     paint: {
       'line-color': ['interpolate', ['linear'], ['get', 'concern'], ...CONCERN_RAMP.flat()] as ExpressionSpecification,
-      'line-width': byZoom(3, 12), 'line-opacity': 0.85,
+      'line-width': byZoom(4, 11),
     } }, labels);
 
-  map.addLayer({ id: 'rules-held', type: 'line', source: 'network', filter: ['==', ['get', 'held'], true], layout: DASHED,
-    paint: { 'line-color': RULE.held, 'line-width': byZoom(2.5, 7), 'line-dasharray': [2, 1.4] } }, labels);
+  map.addLayer({ id: 'rules-held', type: 'line', source: 'network', filter: ['==', ['get', 'held'], true], layout: ROUND,
+    paint: { 'line-color': RULE.held, 'line-width': byZoom(3, 7), 'line-dasharray': [0, 2] } }, labels);
   const ruled = (agrees: boolean): FilterSpecification => ['all', ['has', 'rule'], ['==', ['get', 'osm_ok'], agrees]];
   map.addLayer({ id: 'rules-case', type: 'line', source: 'network', filter: ruled(true), layout: ROUND,
-    paint: { 'line-color': '#ffffff', 'line-width': byZoom(6, 15) } }, labels);
+    paint: { 'line-color': '#ffffff', 'line-width': byZoom(8, 16) } }, labels);
   map.addLayer({ id: 'rules', type: 'line', source: 'network', filter: ruled(true), layout: ROUND,
-    paint: { 'line-color': RULE.agrees, 'line-width': byZoom(3, 10) } }, labels);
+    paint: { 'line-color': RULE.agrees, 'line-width': byZoom(4.5, 11) } }, labels);
   map.addLayer({ id: 'rules-wrong-case', type: 'line', source: 'network', filter: ruled(false), layout: ROUND,
-    paint: { 'line-color': '#ffffff', 'line-width': byZoom(7, 17) } }, labels);
+    paint: { 'line-color': '#ffffff', 'line-width': byZoom(8, 16) } }, labels);
   map.addLayer({ id: 'rules-wrong', type: 'line', source: 'network', filter: ruled(false), layout: DASHED,
-    paint: { 'line-color': RULE.disagrees, 'line-width': byZoom(4, 11), 'line-dasharray': [1.4, 0.7] } }, labels);
+    paint: { 'line-color': RULE.disagrees, 'line-width': byZoom(4.5, 11), 'line-dasharray': [1.4, 0.7] } }, labels);
 
   map.addLayer({ id: 'network-hit', type: 'line', source: 'network', filter: ['!=', ['get', 'name'], ''],
     paint: { 'line-color': '#000000', 'line-opacity': 0, 'line-width': 16 } });

@@ -271,14 +271,32 @@ export interface RuledStreet {
   name: string;
   live: number;
   held: number;
+  disagrees: boolean;
 }
 
 export function ruledStreets(streets: Map<string, StreetInfo>): RuledStreet[] {
   return [...streets.values()]
     .filter((s) => s.rules.length > 0)
     .map(({ name, rules }) => {
-      const held = rules.filter((c) => c.status === 'abstained').length;
-      return { name, live: rules.length - held, held };
+      const live = rules.filter((c) => c.status !== 'abstained');
+      return { name, live: live.length, held: rules.length - live.length, disagrees: live.some((c) => c.osm_wrong_edges > 0) };
     })
     .sort((a, b) => b.live - a.live || a.name.localeCompare(b.name));
+}
+
+export interface ConcernStreet {
+  name: string;
+  mentions: number;
+  themes: string[];
+}
+
+export function concernStreets(streets: Map<string, StreetInfo>): ConcernStreet[] {
+  return [...streets.values()]
+    .filter((s) => s.concerns.length > 0)
+    .map(({ name, concerns }) => ({
+      name,
+      mentions: concerns.reduce((n, c) => n + c.count, 0),
+      themes: [...new Set(concerns.map((c) => c.theme))],
+    }))
+    .sort((a, b) => b.mentions - a.mentions || a.name.localeCompare(b.name));
 }

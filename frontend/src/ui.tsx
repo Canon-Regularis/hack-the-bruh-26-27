@@ -9,6 +9,7 @@ const PATHS = {
   recentre: 'M12 3v3M12 18v3M3 12h3M18 12h3M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
   play: 'M8 5.5v13l10.5-6.5z',
   pause: 'M9 5.5v13M15 5.5v13',
+  chevron: 'M9.5 6l6 6-6 6',
 };
 
 export type IconName = keyof typeof PATHS;
@@ -44,7 +45,8 @@ const RESTRICTION_LABEL: Record<string, string> = {
   no_motor_vehicles: 'No motor vehicles', one_way: 'One way', pedestrian_only: 'Pedestrians only',
   keep_open: 'Must stay open', no_buses: 'No buses', no_entry: 'No entry', max_weight_7_5t: 'Max weight 7.5 t',
   max_length_8m: 'Max length 8 m', no_right_turn: 'No right turn',
-  no_motor_vehicles_part_street: 'No motor vehicles (part of the street)',
+  no_motor_vehicles_part_street: 'No motor vehicles (part of the street)', no_vehicles_part_street: 'No vehicles (part of the street)',
+  one_way_part_street: 'One way (part of the street)', no_vehicles_phased: 'No vehicles (phased)', no_turn: 'No turn',
 };
 
 export const restrictionLabel = (r: string) => RESTRICTION_LABEL[r] ?? r.replaceAll('_', ' ');

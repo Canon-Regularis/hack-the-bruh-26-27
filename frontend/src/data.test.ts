@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  DataError, busiestBin, indexStreets, loadData, ruledStreets, slowestAt, streetSpeeds,
+  DataError, busiestBin, concernStreets, indexStreets, loadData, ruledStreets, slowestAt, streetSpeeds,
   type Clause, type Segment, type Speeds,
 } from './data';
 
@@ -217,15 +217,41 @@ describe('bus speeds', () => {
 describe('ruledStreets', () => {
   it('lists map streets named by a clause, with live and held counts', async () => {
     serve();
-    expect(ruledStreets(indexStreets(await loadData()))).toEqual([{ name: 'Lawnmarket', live: 1, held: 1 }]);
+    expect(ruledStreets(indexStreets(await loadData()))).toEqual([{ name: 'Lawnmarket', live: 1, held: 1, disagrees: false }]);
   });
 
   it('puts streets with rules in force first and counts keep-open clauses as live', async () => {
     serve({ 'rules.json': { clauses: [clause('a', ['Castlehill'], 'abstained'), clause('b', ['Lawnmarket']),
       clause('c', ['Lawnmarket'], 'keep_open'), clause('d', ['Nowhere'])] } });
     expect(ruledStreets(indexStreets(await loadData()))).toEqual([
-      { name: 'Lawnmarket', live: 2, held: 0 },
-      { name: 'Castlehill', live: 0, held: 1 },
+      { name: 'Lawnmarket', live: 2, held: 0, disagrees: false },
+      { name: 'Castlehill', live: 0, held: 1, disagrees: false },
+    ]);
+  });
+
+  it('flags a street where OpenStreetMap disagrees with a rule in force, not with a held one', async () => {
+    serve({ 'rules.json': { clauses: [{ ...clause('a', ['Lawnmarket']), osm_wrong_edges: 2 },
+      { ...clause('b', ['Castlehill'], 'abstained'), osm_wrong_edges: 1 }] } });
+    expect(ruledStreets(indexStreets(await loadData())).map((s) => [s.name, s.disagrees])).toEqual([
+      ['Lawnmarket', true], ['Castlehill', false],
+    ]);
+  });
+});
+
+describe('concernStreets', () => {
+  it('lists map streets named in consultation material with their total mentions and themes', async () => {
+    serve();
+    expect(concernStreets(indexStreets(await loadData()))).toEqual([{ name: 'Lawnmarket', mentions: 2, themes: ['noise'] }]);
+  });
+
+  it('puts the most mentioned streets first and keeps each theme once', async () => {
+    serve({ 'concerns.json': {
+      Castlehill: [{ theme: 'rat_running', count: 1, source: '' }],
+      Lawnmarket: [{ theme: 'noise', count: 2, source: '' }, { theme: 'parking', count: 1, source: '' }, { theme: 'noise', count: 1, source: '' }],
+    } });
+    expect(concernStreets(indexStreets(await loadData()))).toEqual([
+      { name: 'Lawnmarket', mentions: 4, themes: ['noise', 'parking'] },
+      { name: 'Castlehill', mentions: 1, themes: ['rat_running'] },
     ]);
   });
 });

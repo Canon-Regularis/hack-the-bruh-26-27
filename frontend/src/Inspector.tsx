@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { streetSpeeds, type Basis, type Clause, type LayerId, type Meta, type Speeds, type StreetInfo } from './data';
 import { TRAFFIC_RAMP } from './MapView';
 import { BasisChip, Icon, fmt, fmtLength, fmtPct, fmtTime, reasonLabel, restrictionLabel, roadClass, themeLabel } from './ui';
@@ -142,7 +142,7 @@ function Rules({ info, meta }: { info: StreetInfo; meta: Meta }) {
   return (
     <Section title="Legal restrictions" basis={layer.basis}>
       {live.map((c) => (
-        <div key={c.id} className="clause">
+        <div key={c.id} className={`clause ${c.status === 'applied' && c.osm_wrong_edges ? 'clause-wrong' : ''}`}>
           <div className="clause-head"><strong>{restrictionLabel(c.restriction)}</strong><span>{c.times}</span></div>
           {c.in_force && <p className="clause-when">{c.in_force}</p>}
           <OsmCheck clause={c} />
@@ -150,9 +150,9 @@ function Rules({ info, meta }: { info: StreetInfo; meta: Meta }) {
         </div>
       ))}
       {held.length > 0 && (
-        <details className="held">
-          <summary>{held.length} {held.length === 1 ? 'clause' : 'clauses'} abstained for review</summary>
-          <ul>
+        <details className="fold">
+          <summary>{held.length} {held.length === 1 ? 'clause' : 'clauses'} held back</summary>
+          <ul className="reasons">
             {held.map((c) => (
               <li key={c.id}>
                 <strong>{restrictionLabel(c.restriction)}</strong>
@@ -174,9 +174,9 @@ function Concerns({ info, meta }: { info: StreetInfo; meta: Meta }) {
   const sources = [...new Set(info.concerns.map((c) => c.source).filter(Boolean))];
   return (
     <Section title="Consultation concerns" basis={layer.basis} note={sources.join(' · ')}>
-      {info.concerns.map((c, i) => (
-        <Row key={i} label={themeLabel(c.theme)}>{fmt(c.count)} {c.count === 1 ? 'mention' : 'mentions'}</Row>
-      ))}
+      <div className="themes">
+        {info.concerns.map((c, i) => <span key={i} className="theme">{themeLabel(c.theme)}<b>{fmt(c.count)}</b></span>)}
+      </div>
     </Section>
   );
 }
@@ -186,14 +186,31 @@ interface InspectorProps {
   meta: Meta;
   speeds: Speeds | null;
   bin: number;
+  focus: LayerId[];
   onClose(): void;
 }
 
-export default function Inspector({ info, meta, speeds, bin, onClose }: InspectorProps) {
+export default function Inspector({ info, meta, speeds, bin, focus, onClose }: InspectorProps) {
   const lengthByClass = new Map<string, number>();
   for (const s of info.segments) lengthByClass.set(s.cls, (lengthByClass.get(s.cls) ?? 0) + s.len);
   const cls = [...lengthByClass].sort((a, b) => b[1] - a[1])[0][0];
   const counts = meta.layers.counts;
+  const sections: [LayerId, ReactNode][] = [
+    ['rules', meta.layers.rules && <Rules info={info} meta={meta} />],
+    ['concerns', meta.layers.concerns && <Concerns info={info} meta={meta} />],
+    ['speeds', meta.layers.speeds && speeds && <BusSpeed info={info} meta={meta} speeds={speeds} bin={bin} />],
+    ['traffic', meta.layers.traffic && <Traffic info={info} meta={meta} />],
+    ['crossings', meta.layers.crossings && <Crossings info={info} meta={meta} />],
+    ['counts', counts && info.counts.length > 0 && (
+      <Section title="DfT traffic count" basis={counts.basis} note={counts.note}>
+        {info.counts.map((p) => (
+          <Row key={p.id} label={`${p.road} · point ${p.id} · ${p.year} ${p.counted ? 'count' : 'estimate'}`}>
+            {fmt(p.aadf)}/day
+          </Row>
+        ))}
+      </Section>
+    )],
+  ];
   return (
     <aside className="inspector" aria-label={`${info.name} details`}>
       <header className="inspector-head">
@@ -205,20 +222,8 @@ export default function Inspector({ info, meta, speeds, bin, onClose }: Inspecto
         <button className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="close" /></button>
       </header>
       <div className="inspector-body">
-        {meta.layers.rules && <Rules info={info} meta={meta} />}
-        {meta.layers.concerns && <Concerns info={info} meta={meta} />}
-        {meta.layers.speeds && speeds && <BusSpeed info={info} meta={meta} speeds={speeds} bin={bin} />}
-        {meta.layers.traffic && <Traffic info={info} meta={meta} />}
-        {meta.layers.crossings && <Crossings info={info} meta={meta} />}
-        {counts && info.counts.length > 0 && (
-          <Section title="DfT traffic count" basis={counts.basis} note={counts.note}>
-            {info.counts.map((p) => (
-              <Row key={p.id} label={`${p.road} · point ${p.id} · ${p.year} ${p.counted ? 'count' : 'estimate'}`}>
-                {fmt(p.aadf)}/day
-              </Row>
-            ))}
-          </Section>
-        )}
+        {[...sections].sort(([a], [b]) => Number(focus.includes(b)) - Number(focus.includes(a)))
+          .map(([id, node]) => <Fragment key={id}>{node}</Fragment>)}
         <ul className="pending">
           {PENDING.filter(([id]) => !meta.layers[id]).map(([id, title]) => (
             <li key={id}>{title}<span>No data yet</span></li>
