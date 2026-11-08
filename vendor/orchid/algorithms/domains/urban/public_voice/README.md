@@ -111,7 +111,7 @@ has a bit-identical local fallback.
 
 ```bash
 python public_voice_template.py     # the demo, prints "demo OK"
-pytest _stress_test.py -q           # 481 oracle-based tests
+pytest _stress_test.py -q           # 487 oracle-based tests
 ```
 
 ---
@@ -506,7 +506,7 @@ f = concern_field(net, cs, kernel="gaussian",
 
 ## Testing
 
-`_stress_test.py` is an oracle-based suite — **481 tests**, no golden outputs, in four
+`_stress_test.py` is an oracle-based suite — **487 tests**, no golden outputs, in four
 tiers:
 
 1. **Closed forms.** Each kernel's 1-D and 2-D normalising constant, second moment and
@@ -690,7 +690,12 @@ back to 64 ulp of the statistic, which the same data beat even with (1) fixed.
 "every whitespace run is one space" joined separate list items: "Too much
 traffic⏎Lights out on the path" became the crossing keyword "traffic light" — the
 street-lights confusion round 5 fixed; a line break before a capitalised line is now
-a boundary, while a wrapped lower-case "cycle⏎lane" still matches. With the
+a boundary, while a wrapped lower-case "cycle⏎lane" still matches. An independent
+verification of this round caught that fix's own regression before it shipped: the
+split ran before street-name masking (a wrapped "Cross⏎Road" stopped being a place and
+filed noise and rat-running comments under crossing delay) and fired between two
+capitals (ALL-CAPS "CYCLE⏎LANE", "NEAR⏎MISS" fell to "other"); streets are now masked
+first and a break after a capital is not a boundary. With the
 representation term inside the linear bound, round 6's separate zero bound
 (`_zero_tol_linear`) became redundant — the rounded mean's error is inside it — and its
 mutant survived, so it was deleted (the zero tests now use the tie bound itself,
@@ -733,4 +738,4 @@ names; keyword vocabulary (12 of 30 realistic comments misrouted, mostly with
 *Pure standard library: `bisect`, `hashlib`, `hmac`, `heapq`, `itertools`, `json`,
 `math`, `random`, `re`, `unicodedata`, `dataclasses`, `typing`.
 `public_voice_template.py` — `__version__ = "1.0.0"`, 141 public names in `__all__`,
-481 oracle-based tests.*
+487 oracle-based tests.*

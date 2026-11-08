@@ -693,8 +693,10 @@ _RE_STREET_NAME = re.compile(
 _RE_JOINER = re.compile(r"(?<=[a-z0-9])[-\u2010\u2011\u2012\u2013](?=[a-z0-9])|\s+")
 # ... but a line break before a CAPITALISED line starts a new list item
 # ("Too much traffic<newline>Lights out on the path" is not "traffic
-# lights"); a wrapped phrase continues in lower case.
-_RE_NEW_LINE_ITEM = re.compile(r"[ \t]*[\r\n]\s*(?=[A-Z])")
+# lights"); a wrapped phrase continues in lower case.  Not after a capital:
+# ALL-CAPS text ("THE CYCLE<newline>LANE") wraps in capitals.  Street names
+# are masked BEFORE this split, so a wrapped "Cross<newline>Road" stays a place.
+_RE_NEW_LINE_ITEM = re.compile(r"(?<=[^A-Z\s])[ \t]*[\r\n]\s*(?=[A-Z])")
 
 
 def _norm_phrase(t: str) -> str:
@@ -732,8 +734,8 @@ def classify_theme(text: str) -> ThemeScore:
     "park" (a green space as often as a car park) is not a keyword.  Hyphens
     and line breaks inside a phrase are spaces; spellings that then coincide
     ("rat run" / "rat-run") count once."""
-    t = _RE_NEW_LINE_ITEM.sub(" . ", _as_text(text, "text"))
-    t = _norm_phrase(_RE_STREET_NAME.sub(_mask_street, t))
+    t = _RE_STREET_NAME.sub(_mask_street, _as_text(text, "text"))
+    t = _norm_phrase(_RE_NEW_LINE_ITEM.sub(" . ", t))
     scores: Dict[str, int] = {}
     matched: Dict[str, List[str]] = {}
     for theme in THEMES:

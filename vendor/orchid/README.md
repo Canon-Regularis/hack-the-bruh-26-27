@@ -1,6 +1,6 @@
 # vendor/orchid -- generated, do not edit
 
-Verbatim copies of ORCHID (https://github.com/Orthant-Research-Group/orchid) at commit `faf522fa9e8f7eaedbd0ffb55ef22a9153d02706`, written by `scripts/sync_orchid.py`.
+Verbatim copies of ORCHID (https://github.com/Orthant-Research-Group/orchid) at commit `51931773f9a479dee31588c1d943d14996894e2e`, written by `scripts/sync_orchid.py`.
 Import them through `engine/orchid.py`, e.g. `from engine.orchid import street_network`.
 
 To change what is vendored, edit the lists at the top of `scripts/sync_orchid.py`, re-run it,

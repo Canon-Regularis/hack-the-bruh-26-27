@@ -41,9 +41,9 @@
     "algorithms/domains/urban/policy_compiler/README.md": "a0405e4ddfa7d6c6f7eb1349f7d650d72b45e785",
     "algorithms/domains/urban/policy_compiler/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
     "algorithms/domains/urban/policy_compiler/policy_compiler_template.py": "3a343143f1d29f6bc28a26eef7e763d3302daec4",
-    "algorithms/domains/urban/public_voice/README.md": "32d100324760706e2ec13fd13e5260335e021c53",
+    "algorithms/domains/urban/public_voice/README.md": "18e101295ef9f4add2f2330d1c08b8dcd422a5ce",
     "algorithms/domains/urban/public_voice/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
-    "algorithms/domains/urban/public_voice/public_voice_template.py": "9f800eab15cf8e9e0d6dafb7166d870b1c158a25",
+    "algorithms/domains/urban/public_voice/public_voice_template.py": "55b230d500be9b263a3311b456ac073b9bffcfd8",
     "algorithms/domains/urban/signal_control/README.md": "fc0a5c87ccf79f01aa4e75bfbcb94c40d5ec5677",
     "algorithms/domains/urban/signal_control/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
     "algorithms/domains/urban/signal_control/signal_control_template.py": "43bd51c048cc8a0632aea87fe377a038cb34bf81",
@@ -334,7 +334,7 @@
     }
   ],
   "source": {
-    "commit": "faf522fa9e8f7eaedbd0ffb55ef22a9153d02706",
+    "commit": "51931773f9a479dee31588c1d943d14996894e2e",
     "repo": "https://github.com/Orthant-Research-Group/orchid"
   }
 }
