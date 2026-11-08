@@ -141,8 +141,17 @@ def wrong_way_edges(clause: dict, gazetteer: pc.Gazetteer, graph: sn.RoadGraph) 
     is still the #20 glue's rule (bind_rules.bind). Raises Refused if a street doesn't bind
     or the streets don't meet.
     """
+    return bound_edge_ids(clause, gazetteer, graph)
+
+
+def bound_edge_ids(clause: dict, gazetteer: pc.Gazetteer, graph: sn.RoadGraph) -> list[str]:
+    """Return the str ids of the edges the #20 glue's bind gives a clause, with every street it names
+    (street, from_street and to_street, between) bound by the gazetteer. Raises Refused if a street
+    doesn't bind or the streets don't meet.
+    """
+    names = [clause["street"], *(clause.get(k) for k in ("from_street", "to_street")), *clause.get("between", ())]
     found = {}
-    for name in (clause["street"], clause["from_street"], clause["to_street"]):
+    for name in filter(None, names):
         b = gazetteer.resolve(name)
         if b.status != "bound":
             raise Refused(f"binding_{b.status}", f"street {name!r}: {b.reason}", b.candidates)
@@ -153,6 +162,14 @@ def wrong_way_edges(clause: dict, gazetteer: pc.Gazetteer, graph: sn.RoadGraph) 
         raise Refused("binding_unresolved", str(e)) from e
 
 
+def _span(clause: dict, gazetteer: pc.Gazetteer, graph: sn.RoadGraph, predicate):
+    """Return an area target holding only the clause's stretch between two streets."""
+    entry_id = f"span:{clause['clause_id']}"
+    name = f"span {clause['clause_id'].encode().hex()}"   # unique after name normalisation, unlike the id
+    eids = bound_edge_ids(clause, gazetteer, graph)
+    return "area", name, predicate, pc.GazetteerEntry(entry_id, name, kind="area", edge_ids=tuple(eids))
+
+
 def _target(clause: dict, gazetteer: pc.Gazetteer, graph: sn.RoadGraph):
     """Return (target_kind, target_name, predicate, one-way entry or None); raise Refused if unrepresentable.
 
@@ -161,8 +178,11 @@ def _target(clause: dict, gazetteer: pc.Gazetteer, graph: sn.RoadGraph):
     restriction = clause["restriction"]
     if restriction not in br.CLAUSE_TYPES:
         raise Refused("unrepresentable", f"unknown restriction {restriction!r}")
+    if "between" in clause and not br.between_ok(clause["between"]):
+        raise Refused("unrepresentable", "between needs two street names")
+    span = bool(clause.get("between"))
     if restriction == br.KEEP_OPEN:   # as in the glue: open for part of the day still can't be closed outright
-        return "street", clause["street"], None, None
+        return _span(clause, gazetteer, graph, None) if span else ("street", clause["street"], None, None)
     if clause["exemptions"] == "unspecified":
         raise Refused("unrepresentable", "exemptions are not listed")
     times = clause["times"]
@@ -175,7 +195,7 @@ def _target(clause: dict, gazetteer: pc.Gazetteer, graph: sn.RoadGraph):
             raise Refused("unrepresentable", f"time window {times!r} is not {br.ALL_DAY!r} or a time window")
         predicate = None
     if restriction != "one_way":
-        return "street", clause["street"], predicate, None
+        return _span(clause, gazetteer, graph, predicate) if span else ("street", clause["street"], predicate, None)
     if not (clause.get("from_street") and clause.get("to_street")):
         raise Refused("unrepresentable", "one-way clause needs from_street and to_street")
     eids = wrong_way_edges(clause, gazetteer, graph)
@@ -239,6 +259,7 @@ def compile_rules(clauses: list[dict], sources: dict[str, str], graph: sn.RoadGr
     if bad:
         raise ValueError(f"clause ids must be unique, non-empty and unpadded: {', '.join(bad)}")
     names = [c.get(k) for c in clauses for k in ("street", "from_street", "to_street")]
+    names += [n for c in clauses if br.between_ok(c.get("between")) for n in c["between"]]
     gazetteer = build_gazetteer(graph, [n for n in names if isinstance(n, str)])
     passes = {False: ([], {}), True: ([], {})}   # is keep_open -> (policy clauses, refusals)
     extra, restriction, nothing_to_close = [], {}, []
