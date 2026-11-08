@@ -30,8 +30,8 @@ def write(tmp_path, rows):
 def test_load_concerns_reads_location_street_and_weight(tmp_path):
     records = cf.load_concerns(write(tmp_path, ["road_safety,55.949,-3.2,,4,0.5\n", "parking,,,Lawnmarket,3,\n"]))
     assert records == [
-        {"theme": "road_safety", "loc": (55.949, -3.2), "street": "", "weight": 2.0},
-        {"theme": "parking", "loc": None, "street": "Lawnmarket", "weight": 3.0},
+        {"theme": "road_safety", "loc": (55.949, -3.2), "street": "", "count": 4.0, "weight": 2.0},
+        {"theme": "parking", "loc": None, "street": "Lawnmarket", "count": 3.0, "weight": 3.0},
     ]
 
 
