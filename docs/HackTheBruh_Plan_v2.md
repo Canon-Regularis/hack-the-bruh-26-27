@@ -152,32 +152,29 @@ Pairs, per our rule (never solo). **T+0 was Sat 16:40**, so T+3 is 19:40, T+6 is
 | T+6 – 9 | Prediction layer → JSON; check assignment link times vs observed speeds | Demand (gravity + GLS vs DfT); UE; candidate list; scenarios; **launch exhaustive robust run overnight** |
 | T+9 – 12 | Sleep in shifts; collector keeps running | FastAPI over precomputed JSON; MapLibre: rules, heatmap, speed (observed solid / predicted hatched), Pareto scatter → map diff |
 | Morning | Retrain on the full night's data; final numbers | Integrate results; policy-check panel |
-| **Deadline − 3h** | **Feature freeze.** Results slide, pitch, rehearse ×3 | Same |
+| **Deadline − 3h** | Results slide, pitch, rehearse ×3 (no feature freeze) | Same |
 
 ### Signal tasks
 
-Status at Sun 03:20, from the repo and the first real run.
+Status at Sun 07:30, from the repo and the final run on 21:00 to 05:00 UTC. No more windows are coming, so these are the final numbers.
 
 | Owner | Task | Target | Status |
 |---|---|---|---|
 | Matthew Li | Collector | 17:10 | Working: 44,063 pings plotted by 21:12, including repeated fixes, and a live test at 22:54 returned 203 vehicles. We have the OK for overnight polling. Asked to keep it running all night. |
-| Matthew Li | Ping plot and 20-minute sample | 18:00 | Plot merged in PR #54. Speeds received for 21:00 to 03:00 UTC in 2-hour windows (21:00 and 01:00 matched with the fixes). The 23:00 to 01:00 window was matched before the backward-drift fix and has been asked for again. |
+| Matthew Li | Ping plot and 20-minute sample | 18:00 | Plot merged in PR #54. Speeds received for 21:00 to 05:00 UTC in 2-hour windows, all matched with the fixed matcher. That is the whole night: no morning windows. |
 | Matthew Li | Map matching | 19:40 | Merged (#74), with the fixes for breaks, pairs above 80 km/h and backward drift under 10 m. `scripts/run_matching.py` and `scripts/run_matching_hourly.py` turn raw pings into edge-speed windows. |
-| Matthew Li | Prediction JSON for the frontend | 01:40 | Not started. Builds on the prediction table (#76) and the summary file written by `scripts/run_signal.py`. |
+| Matthew Li | Prediction JSON for the frontend | 01:40 | Covered by the prediction table and summary from `scripts/run_signal.py`, sent to Darryl as `speed_prediction.csv` and `speed_summary.json`. No separate JSON unless the frontend asks for one. |
 | Adish | Repo setup and library check | T+0 | Done. |
-| Adish | Dwell stripping and edge-speed table | 19:40 | Done. Real-data run on 21:00 to 03:00. Coverage: 79% of bus-road street-time in the study bbox has no bus observation. Slow rows: 0.9% of rows on edges within 20 m of a stop are under 2 km/h, against 0.4% elsewhere (median 13.4 vs 14.7 km/h), so dwell is not leaking in noticeably. |
-| Adish | Features, leakage firewall, baselines, model, validation | 22:40 | Done (#61, #62, #63, #72, #76). On 21:00 to 03:00 UTC bus-observed speeds (22,636 rows): MAE of model / baseline 1 / baseline 2 is 6.70 / 7.10 / 7.24 km/h on held-out streets and 5.84 / 6.90 / 8.60 km/h on later bins. The leakage check passes. Conformal intervals (#78): plus or minus 14.2 km/h, measured coverage 0.897 against a 0.9 target. Concern intensity is read from Engine's `data/concerns/concern_field.csv` once it exists. |
-| Adish | Assignment vs observed speeds | 01:40 | Done, first result. On 1,864 shared edges Engine's modelled speed is 35 km/h above the bus-observed speed on average (median 48 vs 13 km/h); free-flow speed gives the same gap, because the equilibrium adds little delay (median v/c 0.09). The equilibrium is for 08:00 to 09:00 and the bus data so far is night-time, so this run uses every bin and is labelled as an hour mismatch; it switches to the equilibrium's hour once morning bins are matched. Buses are not cars, but dwell is already stripped, so stops do not explain a gap this size: modelled link speeds are road-class speed-limit defaults. |
-| Adish | Morning retrain, final numbers, results slide | Sun morning | Not started. |
+| Adish | Dwell stripping and edge-speed table | 19:40 | Done. Final run on 21:00 to 05:00: 73,551 bus passes over 1,866 edges on 122 streets in 32 bins. Coverage: 81.9% of bus-road street-time in the study bbox (4,463 edges) has no bus observation. Slow rows: 0.9% of rows on edges within 20 m of a stop are under 2 km/h, against 0.4% elsewhere (median 14.1 vs 15.4 km/h), so dwell is not leaking in noticeably. Known limit: 2.1% of 03:00 to 05:00 rows read 50 km/h or more, mostly on The Mound, Waverley Bridge and Market Street, which looks like one matched route rather than real driving. |
+| Adish | Features, leakage firewall, baselines, model, validation | 22:40 | Done (#61, #62, #63, #72, #76). Final, on 21:00 to 05:00 UTC bus-observed speeds (26,061 rows): MAE of model / baseline 1 / baseline 2 is 7.04 / 7.37 / 7.13 km/h on held-out streets and 6.47 / 7.58 / 8.98 km/h on later bins. The model beats both baselines on both splits, by a small margin on held-out streets. The leakage check passes (shuffled-target skill -0.005, tolerance 0.02). Conformal intervals (#78): plus or minus 15.3 km/h, measured coverage 0.896 against a 0.9 target (0.74 to 0.96 across the five street folds). Concern intensity is read from Engine's `data/concerns/concern_field.csv` once it exists. |
+| Adish | Assignment vs observed speeds | 01:40 | Done, final. On 1,866 shared edges Engine's modelled speed is 35.3 km/h above the bus-observed speed on average (MAE 35.6); free-flow speed gives the same gap (+35.8), because the equilibrium adds little delay (median v/c 0.09). On 2,637 edges with predicted speeds only, the gap is +18.4 km/h. The equilibrium is for 08:00 to 09:00 and all bus data is night-time, so the result uses every bin and is labelled as an hour mismatch. Buses are not cars, but dwell is already stripped, so stops do not explain a gap this size: modelled link speeds are road-class speed-limit defaults. |
+| Adish | Morning retrain, final numbers, results slide | Sun morning | Retrain and final numbers done (above), from one run of `scripts/run_signal.py` on the four windows. Results slide next. |
 
-**Next for Adish:** `scripts/run_signal.py --speeds FILE [FILE ...]` reruns the whole night in about a minute: join the windows, evaluate, predict, write the summary, and run the assignment check. Rerun it whenever Matthew Li sends a new window (a window matched again goes last, so it replaces the old one). Morning retrain, final numbers and results slide when the night's data is in.
+**Next for Adish:** the results slide. The final run is `scripts/run_signal.py --speeds` with the 21:00, 23:00, 01:00 and 03:00 windows; rerun it only if Engine's concern field or clauses file arrives.
 
-**What Matthew Li needs from Adish:**
+**What Matthew Li needs from Adish:** nothing. Matching is merged (#74) and the frontend files are with Darryl.
 
-- Review of the matching PR once it is open, including the fixes on `fix/matching-breaks`: pairs above 80 km/h are dropped, and a backward move under 10 m on the same edge counts as 0 m so dwell is kept.
-- The prediction table (#76) and, from `scripts/run_signal.py`, `data/derived/predictions/summary_<stamp>.json`: share of street-time predicted, error on unseen streets and later bins, the conformal interval (speed plus or minus `half_width_kmh`), the time range, and the slow-rows check.
-
-**What Adish needs from Matthew Li:** the 23:00 to 01:00 window rerun with the fixed matcher, any windows after 03:00, all sent as files, and confirmation that the study bbox (-3.215, 55.942 to -3.155, 55.958) is final.
+**What Adish needs from Matthew Li:** the total ping count from `pings.csv`, for the "every bus is a sensor" line. Without it, the slide uses bus passes per edge (73,551), labelled as such.
 
 Adish sent the OSM cache, `data/raw/osm.json`, directly because it is not in git. Everyone must build from this same file, because a fresh download can give different edge ids. Run `python -m src.graph.build_graph` from the repo root to build the graph from it. No code in the repo creates `osm.json`: it was downloaded once from the Overpass API on 7 Nov at 21:12 (SHA-256 starts `e6c3c0dfd255d4b3`), and the query was not saved. `src/graph/build_graph.py` only reads it, and it expects the query to use recursion (`>;`) so every road's nodes are included. Keep this file rather than downloading it again.
 
