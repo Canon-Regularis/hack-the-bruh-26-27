@@ -38,6 +38,7 @@ class Report:
     wrong_on_osm: list[str] = field(default_factory=list)
     abstained: list[tuple[str, str]] = field(default_factory=list)
     keep_open: dict[str, set[str]] = field(default_factory=dict)
+    clause_edges: dict[str, set[str]] = field(default_factory=dict)
 
 
 def load_clauses(path: Path) -> list[dict]:
@@ -160,11 +161,12 @@ def check_clauses(clauses: list[dict], sources: dict[str, str], graph: sn.RoadGr
         if reason:
             report.abstained.append((clause["clause_id"], reason))
             continue
-        restriction = clause["restriction"]
+        restriction, edge_ids = clause["restriction"], {str(e.eid) for e in edges}
+        report.clause_edges[clause["clause_id"]] = edge_ids
         if restriction == KEEP_OPEN:
-            report.keep_open[clause["clause_id"]] = {str(e.eid) for e in edges}
+            report.keep_open[clause["clause_id"]] = edge_ids
             continue
-        report.bound[restriction].update(str(e.eid) for e in edges)
+        report.bound[restriction].update(edge_ids)
         report.applied.append(clause["clause_id"])
         if not all(osm_agrees(restriction, e) for e in edges):
             report.wrong_on_osm.append(clause["clause_id"])

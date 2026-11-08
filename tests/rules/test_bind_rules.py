@@ -3,9 +3,9 @@ import json
 
 import pytest
 
-from engine.orchid import street_network as sn
 from src.graph.street_lookup import build_street_lookup
 from src.rules import bind_rules as br
+from tests.rules.rules_graph import build_graph
 
 SOURCES = {"etro": "The Council ... QUOTE ... with exemptions."}
 
@@ -17,21 +17,7 @@ def clause(cid, street, restriction, **overrides):
 
 @pytest.fixture(scope="module")
 def graph():
-    g = sn.RoadGraph()
-    for nid, lon in enumerate([-3.2010, -3.2000, -3.1990, -3.1980, -3.1970]):
-        g.add_node(nid, lat=55.9490, lon=lon)
-    g.add_node(5, lat=55.9500, lon=-3.1980)
-    g.add_node(6, lat=55.9510, lon=-3.1980)
-    no_cars = {"way_id": 1, "motor_vehicle": "no"}
-    g.add_edge(1, 2, oneway=False, street_name="Lawnmarket", osm=no_cars)                 # 0, 1
-    g.add_edge(2, 3, oneway=False, street_name="Lawnmarket", osm=no_cars)                 # 2, 3
-    g.add_edge(0, 1, oneway=False, street_name="Castlehill", osm={"way_id": 2})           # 4, 5
-    g.add_edge(3, 4, oneway=False, street_name="Bank Street",
-               osm={"way_id": 3, "motor_vehicle": "yes", "access": "no"})                 # 6, 7
-    g.add_edge(3, 5, street_name="Upper Bow", osm={"way_id": 4, "oneway": "yes"})         # 8
-    g.add_edge(5, 6, oneway=False, street_name="Victoria Street", highway_class="pedestrian",
-               osm={"way_id": 5})                                                         # 9, 10
-    return g
+    return build_graph()
 
 
 @pytest.fixture(scope="module")
@@ -169,3 +155,12 @@ def test_load_clauses_rejects_duplicate_ids(tmp_path):
     path.write_text(json.dumps([clause("open", "Bank Street", "keep_open"), clause("open", "Castlehill", "keep_open")]))
     with pytest.raises(ValueError, match="clause ids must be unique"):
         br.load_clauses(path)
+
+
+def test_report_keeps_each_bound_clauses_own_edges(graph):
+    keep_bank = clause("bank-open", "Bank Street", "keep_open")
+    report = br.check_clauses(APPLIED + [keep_bank] + [c for c, _ in ABSTAINED], SOURCES, graph)
+    assert report.clause_edges == {
+        "lawn-1way": {"1", "3"}, "bow-1way": set(), "lawn-cars": {"0", "1", "2", "3"},
+        "bank-cars": {"6", "7"}, "castle-cars": {"4", "5"}, "vic-ped": {"9", "10"}, "bank-open": {"6", "7"},
+    }
