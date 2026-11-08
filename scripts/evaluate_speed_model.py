@@ -40,6 +40,18 @@ def read_speeds(path):
     return speeds
 
 
+def interval_line(intervals):
+    """Return one line on interval coverage, width and q, with "n/a" for any None."""
+    def show(value, spec):
+        return "n/a" if value is None else format(value, spec)
+
+    return (f"intervals (target {1 - intervals['alpha']:.0%}): measured coverage "
+            f"{show(intervals['coverage'], '.3f')} "
+            f"on held-out {intervals['source']} streets (n={intervals['n']}), mean width "
+            f"{show(intervals['mean_width_kmh'], '.2f')} km/h, "
+            f"q {show(intervals['final_q_kmh'], '.2f')} km/h")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--speeds", type=Path, required=True)
@@ -70,6 +82,7 @@ def main():
         print(f"{split}: MAE model {r['mae_model']:.2f}, baseline 1 {r['mae_baseline_1']:.2f}, "
               f"baseline 2 {r['mae_baseline_2']:.2f} km/h; skill vs baseline 2 "
               f"{r['skill_vs_baseline_2']:.2f}")
+    print(interval_line(results["street_split_intervals"]))
     if results["leakage_check"]["leakage_suspected"]:
         print("STOP: a model on shuffled targets beat the median guess, so something is leaking.")
         sys.exit(1)
