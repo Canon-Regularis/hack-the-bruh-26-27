@@ -54,3 +54,16 @@ def read_aadf(path):
         return None
     rows = pd.read_csv(path, dtype={"edge_id": str})
     return rows.groupby("edge_id", as_index=False)["aadf"].mean()
+
+
+def read_concerns(path):
+    """Return concern intensity per edge from Engine's concern field, or None if not made.
+
+    The field has one column per consultation theme. Intensity is their sum.
+    """
+    if not path.exists():
+        return None
+    field = pd.read_csv(path, dtype={"edge_id": str})
+    themes = [c for c in field.columns if c not in ("edge_id", "basis")]
+    field["concern_intensity"] = field[themes].sum(axis=1)
+    return field[["edge_id", "concern_intensity"]]
