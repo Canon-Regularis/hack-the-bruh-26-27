@@ -177,7 +177,7 @@ Status at Sun 00:33, from the repo.
 - Review of the matching PR once it is open, including the fixes on `fix/matching-breaks`: pairs above 80 km/h are dropped, and a backward move under 10 m on the same edge counts as 0 m so dwell is kept.
 - Later, the model output format, agreed before the prediction JSON is built.
 
-Adish sent the OSM cache, `data/raw/osm.json`, directly because it is not in git. Everyone must build from this same file, because a fresh download can give different edge ids. Run `python -m src.graph.build_graph` from the repo root to build the graph from it.
+Adish sent the OSM cache, `data/raw/osm.json`, directly because it is not in git. Everyone must build from this same file, because a fresh download can give different edge ids. Run `python -m src.graph.build_graph` from the repo root to build the graph from it. No code in the repo creates `osm.json`: it was downloaded once from the Overpass API on 7 Nov at 21:12 (SHA-256 starts `e6c3c0dfd255d4b3`), and the query was not saved. `src/graph/build_graph.py` only reads it, and it expects the query to use recursion (`>;`) so every road's nodes are included. Keep this file rather than downloading it again.
 
 **Feature inputs:** DfT AADF comes from the City of Edinburgh CSV (local authority 29), saved as `data/raw/dft_aadf.csv` and matched to edges with `python -m src.graph.count_points`. 120 of 158 count points matched, and Engine should check `data/graph/dft_review.csv` by eye. Restriction flags need `data/rules/clauses.json`, which Engine writes by hand. In Engine's graph, lanes and speed limit are road-class defaults, because OSM `lanes` and `maxspeed` are not read, so they repeat road class.
 
