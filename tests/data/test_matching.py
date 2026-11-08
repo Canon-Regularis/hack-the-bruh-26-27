@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from engine.orchid import street_network as sn
-from matching.table import match_pings, match_trip
+from matching.table import _edge_metres, match_pings, match_trip
 from matching.trips import Ping, pings_from_rows, split_trips
 
 T0 = datetime(2026, 11, 7, 18, 0, 0, tzinfo=timezone.utc)
@@ -149,3 +149,61 @@ def test_split_trips_breaks_on_a_large_gap():
 def test_split_trips_drops_single_ping_trips():
     pings = [Ping("bus_1", T0, 55.95, -3.19)]
     assert split_trips(pings) == []
+
+
+# --- Breaks, impossible speeds and a parked bus drifting backwards ---
+# Ported from Adish's fix/matching-breaks (164d1c1).
+
+
+def candidate_on(graph, u, v, offset_frac):
+    """A matched position part way along edge u->v, as map_match would choose it."""
+    return sn.Candidate(
+        obs_index=0,
+        eid=edge_id(graph, u, v),
+        point=(0.0, 0.0),
+        offset_frac=offset_frac,
+        distance_m=0.0,
+        emission_logp=0.0,
+    )
+
+
+def test_edge_metres_counts_a_small_backward_move_as_zero(graph):
+    # A parked bus whose GPS drifts about 3 m back along edge A (about 62 m long).
+    start = candidate_on(graph, "n0", "n1", 0.50)
+    end = candidate_on(graph, "n0", "n1", 0.45)
+
+    assert _edge_metres(graph, start, end) == [(str(start.eid), 0.0)]
+
+
+def test_edge_metres_drops_a_large_backward_move(graph):
+    # About 25 m backwards on a one-way edge is not GPS drift.
+    start = candidate_on(graph, "n0", "n1", 0.50)
+    end = candidate_on(graph, "n0", "n1", 0.10)
+
+    assert _edge_metres(graph, start, end) is None
+
+
+def test_match_trip_drops_a_pair_across_a_break(graph):
+    # Edge D is about 220 m north and not joined to A, B or C, so no route links them.
+    graph.add_node("n4", lat=55.9520, lon=-3.2000)
+    graph.add_node("n5", lat=55.9520, lon=-3.1990)
+    graph.add_edge("n4", "n5", oneway=True, street_name="D")
+    idx = sn.EdgeIndex(graph, mode="bus")
+    trip = [
+        Ping("bus_1", T0, *midpoint(NODES["n0"], NODES["n1"])),
+        Ping("bus_1", T0 + timedelta(seconds=30), *midpoint((55.9520, -3.2000), (55.9520, -3.1990))),
+    ]
+    points = [(p.lat, p.lon) for p in trip]
+    result = sn.map_match(graph, points, geographic=True, index=idx, mode="bus")
+    assert result.breaks == [1]
+
+    assert match_trip(graph, idx, trip) == []
+
+
+def test_match_trip_drops_a_pair_faster_than_80_kmh(graph, idx):
+    # Midpoint of A to midpoint of C is about 125 m. In 1 s that is about 450 km/h.
+    trip = [
+        Ping("bus_1", T0, *midpoint(NODES["n0"], NODES["n1"])),
+        Ping("bus_1", T0 + timedelta(seconds=1), *midpoint(NODES["n2"], NODES["n3"])),
+    ]
+    assert match_trip(graph, idx, trip) == []
