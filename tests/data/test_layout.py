@@ -29,6 +29,11 @@ def test_sample_data_is_not_gitignored():
     assert not is_ignored("sample/pings.jsonl")
 
 
+@pytest.mark.parametrize("name", ["meta.json", "network.geojson", "streets.json", "rules.json", "designs.json"])
+def test_the_sites_data_is_not_gitignored(name):
+    assert not is_ignored(f"../frontend/public/data/{name}")
+
+
 @pytest.mark.parametrize(
     "path",
     [
