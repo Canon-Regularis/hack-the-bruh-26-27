@@ -30,7 +30,8 @@ def load_concerns(path: Path = CONCERNS_PATH) -> list[dict]:
     """Read the consultation records: theme, lat, lon, street, count and severity.
 
     Each record becomes theme, loc ((lat, lon), or None when only a street is known),
-    street, and weight = severity * count, with severity defaulting to 1.
+    street, count (how many comments the row stands for) and weight = severity * count,
+    with severity defaulting to 1.
     """
     records = []
     with path.open(newline="", encoding="utf-8") as f:
@@ -45,6 +46,7 @@ def load_concerns(path: Path = CONCERNS_PATH) -> list[dict]:
                 "theme": row["theme"],
                 "loc": (float(row["lat"]), float(row["lon"])) if row["lat"] else None,
                 "street": row["street"],
+                "count": float(row["count"]),
                 "weight": float(row["severity"] or 1.0) * float(row["count"]),
             })
     return records
