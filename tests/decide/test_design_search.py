@@ -1,4 +1,5 @@
 import json
+import signal
 from types import SimpleNamespace
 
 import pytest
@@ -76,7 +77,7 @@ def test_evaluate_marks_a_run_that_still_does_not_converge(context, monkeypatch)
                                                "reason": "did not converge: relative gap 2.00e-02 after 1000 iterations"}
 
 
-def test_fingerprint_changes_when_any_input_changes(context):
+def test_fingerprint_changes_when_any_input_changes(context, monkeypatch):
     base = ds.fingerprint(context)
     assert ds.fingerprint({**context}) == base
     edited = {**context, "candidates": [{**context["candidates"][1], "capacity_factor": 0.6}, context["candidates"][0]]}
@@ -84,8 +85,14 @@ def test_fingerprint_changes_when_any_input_changes(context):
     assert ds.fingerprint({**context, "scenarios": [NORMAL, {**SOUTH_SHUT, "multiplier": 2.0}]}) != base
     same_total = ta.ODMatrix({(0, 3): 300.0, (3, 0): 600.0, (0, 4): 100.0})
     assert same_total.total() == context["od"].total() and ds.fingerprint({**context, "od": same_total}) != base
-    renumbered = list(reversed(context["link_to_edge"]))
-    assert ds.fingerprint({**context, "link_to_edge": renumbered}) != base
+    assert ds.fingerprint({**context, "net": context["net"].with_scaled_capacity(0, 0.5)}) != base
+    signalised = [{**c, "signalised": True} for c in context["crossings"]]
+    assert ds.fingerprint({**context, "crossings": signalised}) != base
+    for module, name, value in [(ds.pcd, "CYCLE_S", 120.0), (ds.pcd, "MAX_WAIT_S", 90.0), (ds, "MAX_ITERATIONS", 50)]:
+        with monkeypatch.context() as patch:
+            patch.setattr(module, name, value)
+            assert ds.fingerprint(context) != base
+    assert ds.fingerprint(context) == base
 
 
 def write_checkpoint(path, header, records, tail=""):
@@ -148,6 +155,7 @@ def test_main_runs_every_design_and_resumes_from_the_checkpoint(context, tmp_pat
     assert "0 runs already checkpointed, 8 to go" in out and len(checkpoint.read_text().splitlines()) == 9
     assert [d["feasible"] for d in first["designs"]] == [True, False, True, False]
     assert first["hour"] == "08:00-09:00 weekday" and first["alpha"] == 0.9
+    assert first["fingerprint"] == json.loads(json.dumps(ds.fingerprint(context)))
     assert "2 of 4 designs feasible" in out
 
     out, again = run_main(context, tmp_path, monkeypatch, capsys)
@@ -164,3 +172,30 @@ def test_main_warns_about_abstained_keep_open_clauses(context, tmp_path, monkeyp
     warned = {**context, "abstained_keep_open": [("servicing", "source 'tro-99' is not cached")]}
     out, _ = run_main(warned, tmp_path, monkeypatch, capsys)
     assert out.startswith("warning: keep-open clause servicing abstained (source 'tro-99' is not cached)")
+
+
+def test_sigterm_becomes_system_exit_so_the_pool_shuts_down():
+    with pytest.raises(SystemExit, match="stopped by signal 15"):
+        ds._stop(15, None)
+
+
+def test_main_stops_on_sigterm_while_running_and_restores_the_handler_after(context, tmp_path, monkeypatch, capsys):
+    during = []
+    real_as_completed = ds.as_completed
+    monkeypatch.setattr(ds, "as_completed", lambda fs: during.append(signal.getsignal(signal.SIGTERM)) or real_as_completed(fs))
+    def before(*_):
+        pass
+
+    original = signal.signal(signal.SIGTERM, before)
+    try:
+        run_main(context, tmp_path, monkeypatch, capsys)
+        assert during == [ds._stop] and signal.getsignal(signal.SIGTERM) is before
+    finally:
+        signal.signal(signal.SIGTERM, original)
+
+
+def test_repairing_a_half_written_line_leaves_no_temporary_file(tmp_path):
+    path = tmp_path / "checkpoint.jsonl"
+    write_checkpoint(path, {"a": 1}, [], tail='{"mask": 1')
+    ds.load_checkpoint(path, {"a": 1})
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["checkpoint.jsonl"]

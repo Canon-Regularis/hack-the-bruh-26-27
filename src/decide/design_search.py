@@ -11,6 +11,7 @@ import json
 import math
 import multiprocessing
 import os
+import signal
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from itertools import accumulate
 from pathlib import Path
@@ -19,6 +20,7 @@ from engine.orchid import traffic_assignment as ta
 from src.decide.baseline_user_equilibrium import OD_PATH, load_od
 from src.decide.interventions import apply_design, checked_candidates
 from src.decide.network import link_maps, to_network
+from src.decide import pedestrian_crossing_delay as pcd
 from src.decide.pedestrian_crossing_delay import find_crossings, j_ped
 from src.decide.scenarios import SCENARIOS_PATH
 from src.graph.build_graph import load_graph
@@ -110,19 +112,32 @@ def _digest(value) -> str:
     return hashlib.sha256(json.dumps(value).encode()).hexdigest()[:16]
 
 
-def fingerprint(context: dict) -> dict:
-    """Return what a checkpoint belongs to, so a stale one is refused.
+def _write_atomic(path: Path, text: str) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(path)
 
-    Covers each candidate's definition, each scenario, and hashes of the OD trips and the
-    network's links, so editing a candidate, re-estimating the OD matrix or rebuilding the
-    graph invalidates old results.
+
+def fingerprint(context: dict) -> dict:
+    """Return everything a run's result depends on, so a stale checkpoint or result is refused.
+
+    Covers each candidate and scenario, hashes of the OD trips, every link (ends, free-flow
+    time, capacity, BPR shape) and every crossing, and the solver and J_ped settings. Editing
+    a candidate, re-estimating the OD matrix, rebuilding the graph or changing an assumed
+    value all invalidate old results.
     """
     return {
         "candidates": [[c["id"], c["kind"], sorted(c["edges"], key=int), c["capacity_factor"], c["node"]]
                        for c in context["candidates"]],
         "scenarios": [[s["id"], s["multiplier"], s["probability"], s["closed_edge_ids"]] for s in context["scenarios"]],
         "od": _digest(context["od"].items()),
-        "links": _digest(context["link_to_edge"]),
+        "links": _digest([[link.name, link.tail, link.head, link.vdf.free_flow_time(), link.capacity,
+                           link.vdf.alpha, link.vdf.beta] for link in context["net"].links]),
+        "crossings": _digest(context["crossings"]),
+        "settings": {"max_iterations": MAX_ITERATIONS, "retry_iteration_factor": RETRY_ITERATION_FACTOR,
+                     "walking_speed_mps": pcd.WALKING_SPEED_MPS, "cycle_s": pcd.CYCLE_S,
+                     "walk_green_s": pcd.WALK_GREEN_S, "zebra_delay_s": pcd.ZEBRA_DELAY_S,
+                     "max_wait_s": pcd.MAX_WAIT_S},
     }
 
 
@@ -130,8 +145,8 @@ def load_checkpoint(path: Path, expected: dict) -> dict[tuple[int, str], dict]:
     """Read finished (mask, scenario id) results, refusing a checkpoint from another setup.
 
     The header is written atomically, so only a record line can be half-written. A crash
-    mid-write leaves one at the end; it is dropped and the file rewritten without it,
-    so later appends start on a clean line.
+    mid-write leaves one at the end; it is dropped and the file atomically rewritten
+    without it, so later appends start on a clean line.
     """
     if not path.exists():
         return {}
@@ -139,7 +154,7 @@ def load_checkpoint(path: Path, expected: dict) -> dict[tuple[int, str], dict]:
     lines = text.splitlines()
     if not text.endswith("\n"):
         lines.pop()
-        path.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+        _write_atomic(path, "".join(line + "\n" for line in lines))
     if json.loads(lines[0])["fingerprint"] != expected:
         raise ValueError(f"{path} belongs to a different set of candidates, scenarios or OD; "
                          "delete it to start the search over")
@@ -172,6 +187,11 @@ def summarise(context: dict, results: dict[tuple[int, str], dict]) -> list[dict]
     return designs
 
 
+def _stop(signum: int, _frame) -> None:
+    """Turn SIGTERM into SystemExit, so the pool is shut down and no worker is orphaned."""
+    raise SystemExit(f"stopped by signal {signum}")
+
+
 def _start_worker(context: dict) -> None:
     _worker_context.update(context)
 
@@ -195,12 +215,11 @@ def main() -> None:
     if todo:
         CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
         if not CHECKPOINT_PATH.exists():
-            header = CHECKPOINT_PATH.with_name(CHECKPOINT_PATH.name + ".tmp")
-            header.write_text(json.dumps({"fingerprint": expected}) + "\n", encoding="utf-8")
-            header.replace(CHECKPOINT_PATH)
+            _write_atomic(CHECKPOINT_PATH, json.dumps({"fingerprint": expected}) + "\n")
         step = max(1, len(todo) // 20)
         pool = ProcessPoolExecutor(min(WORKERS, len(todo)), mp_context=multiprocessing.get_context("spawn"),
                                    initializer=_start_worker, initargs=(context,))
+        previous_handler = signal.signal(signal.SIGTERM, _stop)
         try:
             with CHECKPOINT_PATH.open("a", encoding="utf-8") as checkpoint:
                 runs = {pool.submit(_run, mask, i): (mask, scenarios[i]["id"]) for mask, i in todo}
@@ -214,12 +233,14 @@ def main() -> None:
                         print(f"  {done}/{len(todo)} runs done")
         finally:
             pool.shutdown(cancel_futures=True)
+            signal.signal(signal.SIGTERM, previous_handler)
 
     designs = summarise(context, results)
     RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     RESULTS_PATH.write_text(json.dumps({
         "hour": context["hour"],
         "alpha": ALPHA,
+        "fingerprint": expected,
         "candidates": [c["id"] for c in context["candidates"]],
         "scenarios": [{"id": s["id"], "probability": s["probability"]} for s in scenarios],
         "designs": designs,
