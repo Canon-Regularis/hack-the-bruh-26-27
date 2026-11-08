@@ -357,3 +357,20 @@ def test_main_writes_flags_like_the_glue_and_prints_summary(graph, tmp_path, mon
         rows = list(csv.DictReader(f))
     assert len(rows) == graph.num_edges and rows[1] == {"edge_id": "1", "no_motor_vehicles": "1", "one_way": "1",
                                                         "pedestrian_only": "0"}
+
+
+def test_between_compiles_to_only_its_stretch_and_agrees_with_the_glue():
+    g = sn.RoadGraph()
+    for nid, (lat, lon) in enumerate([(55.949, -3.200), (55.949, -3.199), (55.949, -3.198), (55.949, -3.197),
+                                      (55.950, -3.199), (55.950, -3.198)]):
+        g.add_node(nid, lat=lat, lon=lon)
+    for u, v, name in ((0, 1, "Long Street"), (1, 2, "Long Street"), (2, 3, "Long Street"),
+                       (1, 4, "First Street"), (2, 5, "Second Street")):
+        g.add_edge(u, v, oneway=False, street_name=name, osm={"way_id": u})
+    clauses = [clause("span", "Long Street", "no_motor_vehicles", between=["First Street", "Second Street"]),
+               clause("bad", "Long Street", "no_motor_vehicles", between=["First Street"])]
+    compiled = cr.compile_rules(clauses, SOURCES, g)
+    assert cr.clause_edges(compiled) == {"span": {"2", "3"}}
+    assert dict(cr.abstained(compiled))["bad"] == "unrepresentable: between needs two street names"
+    assert cr.compare_with_glue(clauses, SOURCES, g, compiled) == {
+        "clauses": {}, "wrong_on_osm": {"glue_only": [], "compiler_only": []}, "flags": []}

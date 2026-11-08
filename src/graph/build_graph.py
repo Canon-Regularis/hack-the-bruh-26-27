@@ -17,7 +17,8 @@ ROOT = Path(__file__).resolve().parents[2]
 OSM_PATH = ROOT / "data" / "raw" / "osm.json"
 GRAPH_DIR = ROOT / "data" / "graph"
 
-KEPT_EDGE_TAGS = ("access", "motor_vehicle", "vehicle", "bus", "psv", "foot", "bicycle", "oneway")
+KEPT_EDGE_TAGS = ("access", "motor_vehicle", "vehicle", "bus", "psv", "foot", "bicycle", "oneway", "maxspeed")
+MPH_TO_KPH = 1.609344
 KEPT_NODE_TAGS = ("highway", "crossing", "crossing_ref", "crossing:markings")
 SPLIT_NODE_HIGHWAYS = frozenset({"traffic_signals", "crossing"})
 BUS_STOP_PUBLIC_TRANSPORT = frozenset({"platform", "stop_position"})
@@ -52,6 +53,23 @@ def oneway_direction(tags: dict) -> int:
     return ONEWAY_VALUES.get(value.strip().lower(), 0)
 
 
+def maxspeed_kph(tags: dict) -> float | None:
+    """Return the way's OSM speed limit in km/h, or None to use the road-class default.
+
+    "20 mph" and "20mph" are miles per hour; a bare number is km/h, as OSM defines it.
+    Values like "none", "signals" or "walk" give None.
+    """
+    value = tags.get("maxspeed", "").strip().lower()
+    mph = "mph" in value
+    try:
+        speed = float(value.split("mph")[0] if mph else value)
+    except ValueError:
+        return None
+    if speed <= 0:
+        return None
+    return speed * MPH_TO_KPH if mph else speed
+
+
 def read_osm(osm_path: Path) -> Osm:
     """Read a cached Overpass JSON file once: node coordinates, tagged nodes, and road ways by id.
 
@@ -74,7 +92,8 @@ def read_osm(osm_path: Path) -> Osm:
 def build_graph(osm: Osm) -> sn.RoadGraph:
     """Build the road graph from the OSM data.
 
-    Ways are split into edges at junctions, traffic signals and crossings.
+    Ways are split into edges at junctions, traffic signals and crossings. Speed limits come
+    from OSM maxspeed where it can be read, else from the road-class default.
     Nodes are added in OSM id order so the graph comes out the same every time.
     Raw OSM tags are kept on each node and edge under ``tags["osm"]``.
     """
@@ -97,6 +116,7 @@ def build_graph(osm: Osm) -> sn.RoadGraph:
 
     for way_id, refs, tags, klass in ways:
         direction = oneway_direction(tags)
+        limit = maxspeed_kph(tags)
         osm_tags = {"way_id": way_id, **{k: tags[k] for k in KEPT_EDGE_TAGS if k in tags}}
         start = 0
         for i in range(1, len(refs)):
@@ -108,6 +128,7 @@ def build_graph(osm: Osm) -> sn.RoadGraph:
             u, v = seg[0], seg[-1]
             graph.add_edge(
                 u, v, oneway=direction != 0, street_name=tags.get("name", ""), highway_class=klass,
+                speed_limit_kph=limit,
                 geometry=[graph.node(u).xy, *(graph._project(*coords[n]) for n in seg[1:-1]),
                           graph.node(v).xy],
                 osm=osm_tags,

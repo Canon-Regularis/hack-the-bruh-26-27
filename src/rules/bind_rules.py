@@ -81,7 +81,14 @@ def abstain_reason(clause: dict, sources: dict[str, str]) -> str | None:
             return f"time-limited ({clause['times']}), but flags and OSM tags are all-day"
     if clause["restriction"] == "one_way" and not (clause.get("from_street") and clause.get("to_street")):
         return "one-way clause needs from_street and to_street"
+    if "between" in clause and not between_ok(clause["between"]):
+        return "between needs two street names"
     return None
+
+
+def between_ok(between) -> bool:
+    """True if a clause's between field names two streets."""
+    return isinstance(between, list) and len(between) == 2 and all(isinstance(n, str) and n.strip() for n in between)
 
 
 def _street_edges(graph: sn.RoadGraph, lookup: dict[str, list[str]], name: str) -> list[sn.RoadEdge]:
@@ -116,14 +123,33 @@ def _distance_along(edges: list[sn.RoadEdge], starts: set) -> dict:
     return dist
 
 
+def _between(edges: list[sn.RoadEdge], graph: sn.RoadGraph, lookup: dict[str, list[str]],
+             between: list[str]) -> list[sn.RoadEdge]:
+    """Keep the street's edges on its shortest stretch between its junctions with the two named streets."""
+    first, second = between
+    nodes = {n for e in edges for n in (e.u, e.v)}
+    from_first = _distance_along(edges, _junctions(nodes, _street_edges(graph, lookup, first), first))
+    ends = _junctions(nodes, _street_edges(graph, lookup, second), second)
+    from_second = _distance_along(edges, ends)
+    span = min((from_first[n] for n in ends if n in from_first), default=math.inf)
+    if span == math.inf:
+        raise BindError(f"street has no stretch between {first!r} and {second!r}")
+    on_span = {n for n in nodes if n in from_first and n in from_second
+               and from_first[n] + from_second[n] <= span + 1e-6}
+    return [e for e in edges if e.u in on_span and e.v in on_span]
+
+
 def bind(clause: dict, graph: sn.RoadGraph, lookup: dict[str, list[str]]) -> list[sn.RoadEdge]:
     """Return the edges the clause restricts; raise BindError if it can't be bound.
 
-    For one_way, only the edges pointing back towards from_street, i.e. against the
-    allowed from_street -> to_street direction. A street OSM already has one-way the
+    With between, only the stretch of the street between its junctions with those two
+    streets. For one_way, only the edges pointing back towards from_street, i.e. against
+    the allowed from_street -> to_street direction. A street OSM already has one-way the
     right way has none.
     """
     edges = _street_edges(graph, lookup, clause["street"])
+    if clause.get("between"):
+        edges = _between(edges, graph, lookup, clause["between"])
     if clause["restriction"] != "one_way":
         return edges
     nodes = {n for e in edges for n in (e.u, e.v)}
@@ -136,7 +162,7 @@ def bind(clause: dict, graph: sn.RoadGraph, lookup: dict[str, list[str]]) -> lis
 def osm_agrees(restriction: str, edge: sn.RoadEdge) -> bool:
     """Return True if the edge's OSM tags already show the restriction.
 
-    For one_way the bound edges run against the rule, so OSM letting traffic use them is a disagreement.
+    For one_way the bound edges run against the rule, so OSM letting cars use them is a disagreement.
     """
     if restriction == "pedestrian_only":
         return edge.highway_class == "pedestrian"
@@ -144,7 +170,7 @@ def osm_agrees(restriction: str, edge: sn.RoadEdge) -> bool:
         osm = edge.tags["osm"]
         value = osm.get("motor_vehicle") or osm.get("vehicle") or osm.get("access")
         return value == "no" if value else "car" not in edge.modes_permitted
-    return False
+    return "car" not in edge.modes_permitted
 
 
 def check_clauses(clauses: list[dict], sources: dict[str, str], graph: sn.RoadGraph) -> Report:

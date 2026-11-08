@@ -1,7 +1,7 @@
 """Build the demand scenarios for the design search (ALG-S2-2, #27).
 
 Each scenario pairs a demand multiplier (low, normal, peak, event) with one closure
-(Johnston Terrace) that is either open or shut. The full set is reduced with orchid's
+(The Mound) that is either open or shut. The full set is reduced with orchid's
 scenario_reduction, and #28 weights the mean and the CVaR with the returned
 probabilities. The multipliers and their weights are labelled assumptions.
 
@@ -26,7 +26,7 @@ DEMAND_LEVELS = {
     "peak": (1.25, 0.20),
     "event": (1.50, 0.10),
 }
-CLOSURE_STREET = "Johnston Terrace"
+CLOSURE_STREET = "The Mound"
 CLOSURE_PROBABILITY = 0.10
 N_KEPT = 4
 

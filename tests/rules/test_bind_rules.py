@@ -86,6 +86,7 @@ def test_bind_raises_with_reason(graph, lookup, c, reason):
     ("pedestrian_only", 9, True),
     ("pedestrian_only", 0, False),
     ("one_way", 1, False),             # a bound one-way edge is traffic OSM allows against the rule
+    ("one_way", 9, True),              # cars can't use a pedestrian street either way
 ])
 def test_osm_agrees(graph, restriction, eid, expected):
     assert br.osm_agrees(restriction, graph.edge(eid)) is expected
@@ -164,3 +165,47 @@ def test_report_keeps_each_bound_clauses_own_edges(graph):
         "lawn-1way": {"1", "3"}, "bow-1way": set(), "lawn-cars": {"0", "1", "2", "3"},
         "bank-cars": {"6", "7"}, "castle-cars": {"4", "5"}, "vic-ped": {"9", "10"}, "bank-open": {"6", "7"},
     }
+
+
+@pytest.fixture(scope="module")
+def long_street():
+    """Long Street runs 0-1-2-3; First Street meets it at 1, Second Street at 2; Far Street meets neither."""
+    g = br.sn.RoadGraph()
+    for nid, (lat, lon) in enumerate([(55.949, -3.200), (55.949, -3.199), (55.949, -3.198), (55.949, -3.197),
+                                      (55.950, -3.199), (55.950, -3.198), (55.952, -3.190), (55.952, -3.189)]):
+        g.add_node(nid, lat=lat, lon=lon)
+    for u, v, name in ((0, 1, "Long Street"), (1, 2, "Long Street"), (2, 3, "Long Street"),
+                       (1, 4, "First Street"), (2, 5, "Second Street"), (6, 7, "Far Street")):
+        g.add_edge(u, v, oneway=False, street_name=name, osm={"way_id": u})   # 0-1, 2-3, 4-5, 6-7, 8-9, 10-11
+    return g
+
+
+def test_between_binds_only_the_stretch_between_the_two_junctions(long_street):
+    edges = br.bind(clause("c", "Long Street", "no_motor_vehicles", between=["First Street", "Second Street"]),
+                    long_street, build_street_lookup(long_street))
+    assert sorted(e.eid for e in edges) == [2, 3]
+
+
+def test_between_order_does_not_matter(long_street):
+    edges = br.bind(clause("c", "Long Street", "no_motor_vehicles", between=["Second Street", "First Street"]),
+                    long_street, build_street_lookup(long_street))
+    assert sorted(e.eid for e in edges) == [2, 3]
+
+
+def test_one_way_between_restricts_only_the_wrong_way_edge_of_the_stretch(long_street):
+    edges = br.bind(clause("c", "Long Street", "one_way", from_street="First Street", to_street="Second Street",
+                           between=["First Street", "Second Street"]), long_street, build_street_lookup(long_street))
+    assert [(e.u, e.v) for e in edges] == [(2, 1)]
+
+
+def test_between_a_street_that_does_not_meet_it_abstains(long_street):
+    report = br.check_clauses([clause("c", "Long Street", "no_motor_vehicles", between=["First Street", "Far Street"])],
+                              SOURCES, long_street)
+    assert report.abstained == [("c", "street doesn't meet 'Far Street'")]
+    assert report.bound["no_motor_vehicles"] == set()
+
+
+@pytest.mark.parametrize("between", [["First Street"], "First Street", ["First Street", ""], [1, 2]])
+def test_malformed_between_abstains(between):
+    assert br.abstain_reason(clause("c", "Long Street", "no_motor_vehicles", between=between), SOURCES) == \
+        "between needs two street names"

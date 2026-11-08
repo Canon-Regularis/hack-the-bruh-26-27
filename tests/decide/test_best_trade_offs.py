@@ -127,7 +127,7 @@ def write_field(path, values, basis=cf.LOCATED):
     return path
 
 
-def run_main(context, search, tmp_path, monkeypatch, field=None):
+def run_main(context, search, tmp_path, monkeypatch, field=None, argv=()):
     search_path = tmp_path / "design_search.json"
     search_path.write_text(json.dumps(search))
     monkeypatch.setattr(bt, "SEARCH_PATH", search_path)
@@ -136,8 +136,26 @@ def run_main(context, search, tmp_path, monkeypatch, field=None):
     monkeypatch.setattr(bt, "FIELD_PATH", field or tmp_path / "no_field.csv")
     monkeypatch.setattr(bt, "WORKERS", 2)
     monkeypatch.setattr(bt, "load_context", lambda: context)
-    bt.main()
+    bt.main(argv)
     return json.loads((tmp_path / "best_trade_offs.json").read_text())
+
+
+def test_main_with_no_resolve_picks_from_the_search_without_solving(context, search, tmp_path, monkeypatch):
+    (tmp_path / "plain").mkdir()
+    plain = run_main(context, search, tmp_path / "plain", monkeypatch)
+    (tmp_path / "designs").mkdir()
+    (tmp_path / "designs" / "knee.csv").write_text("left by an earlier run")
+
+    def solved_again(*args, **kwargs):
+        raise AssertionError("--no-resolve solved a design again")
+    monkeypatch.setattr(bt, "solve", solved_again)
+    monkeypatch.setattr(bt, "score_voice", solved_again)
+    out = run_main(context, search, tmp_path, monkeypatch, argv=("--no-resolve",))
+    assert {role: p["mask"] for role, p in out["picks"].items()} == {role: p["mask"] for role, p in plain["picks"].items()}
+    assert out["trade_offs"] == plain["trade_offs"] and out["hypervolume"] == plain["hypervolume"]
+    assert out["j_voice"]["status"] == bt.NOT_COMPUTED and out["flows_conditions"] is None
+    assert all("flows_file" not in p and p["diff"] == plain["picks"][role]["diff"] for role, p in out["picks"].items())
+    assert not list((tmp_path / "designs").glob("*.csv"))
 
 
 def assert_pick_files(out, context, tmp_path):

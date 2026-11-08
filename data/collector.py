@@ -22,7 +22,7 @@ import csv
 import json
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -245,6 +245,93 @@ def run_collect(bbox, interval, outdir) -> None:
                 time.sleep(sleep_for)
 
 
+def decode_track(polyline):
+    """Decode bustimes.org's time_aware_polyline into (lat, lon, unix seconds) points.
+
+    Google polyline varints in threes: lon and lat in 1e-5 degrees, then seconds, each a delta.
+    """
+    values, i = [], 0
+    while i < len(polyline):
+        shift = result = 0
+        while True:
+            b = ord(polyline[i]) - 63
+            i += 1
+            result |= (b & 0x1F) << shift
+            shift += 5
+            if b < 0x20:
+                break
+        values.append(~(result >> 1) if result & 1 else result >> 1)
+    points, lon, lat, t = [], 0, 0, 0
+    for k in range(0, len(values) - 2, 3):
+        lon, lat, t = lon + values[k], lat + values[k + 1], t + values[k + 2]
+        points.append((lat / 1e5, lon / 1e5, t))
+    return points
+
+
+def track_rows(journey, start, end, polled_at):
+    """Return collector-shaped rows for a past journey's points with start <= time < end."""
+    vehicle = journey.get("vehicle") or {}
+    raw = json.dumps({"journey_id": journey["id"], "vehicle": vehicle.get("slug"),
+                      "route_name": journey.get("route_name"), "source": "bustimes.org history"})
+    rows = []
+    for lat, lon, t in decode_track(journey.get("time_aware_polyline") or ""):
+        when = datetime.fromtimestamp(t, timezone.utc)
+        if start <= when < end:
+            rows.append({"polled_at": polled_at, "vehicle_id": vehicle["id"], "service": journey.get("route_name"),
+                         "bearing": None, "vehicle_timestamp": when.isoformat(), "lat": lat, "lon": lon, "raw": raw})
+    return rows
+
+
+def get_json(url, min_gap=0.5, attempts=5):
+    """GET bustimes.org JSON at most once per min_gap seconds, backing off on failures."""
+    for failures in range(attempts):
+        t0 = time.monotonic()
+        try:
+            resp = requests.get(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"}, timeout=30)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.exceptions.RequestException as exc:
+            if failures == attempts - 1:
+                raise
+            time.sleep(next_wait(min_gap, failures + 1, retry_after_seconds(exc)))
+        finally:
+            time.sleep(max(0.0, min_gap - (time.monotonic() - t0)))
+
+
+def run_history(vehicle_ids, operators, start, end, out_path, lead=timedelta(hours=2)):
+    """Write the recorded tracks of every journey running between start and end, from bustimes.org."""
+    api = "https://bustimes.org/api"
+    ids = set(vehicle_ids)
+    for op in operators:
+        url = f"{api}/vehicles/?operator={op}&limit=1000"
+        while url:
+            page = get_json(url)
+            ids |= {v["id"] for v in page["results"] if not v.get("withdrawn")}
+            url = page.get("next")
+    print(f"{len(ids)} vehicles; journeys from {start - lead} to {end}")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    polled_at = datetime.now(timezone.utc).isoformat()
+    written = journeys = 0
+    with open(out_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+        writer.writeheader()
+        for n, vid in enumerate(sorted(ids), 1):
+            url = f"{api}/vehiclejourneys/?vehicle={vid}&date={start.date()}"
+            while url:
+                page = get_json(url)
+                times = [datetime.fromisoformat(j["datetime"].replace("Z", "+00:00")) for j in page["results"]]
+                for j, when in zip(page["results"], times):
+                    if start - lead <= when < end:
+                        rows = track_rows(get_json(f"{api}/vehiclejourneys/{j['id']}/details.json"), start, end, polled_at)
+                        writer.writerows(rows)
+                        written, journeys = written + len(rows), journeys + bool(rows)
+                url = page.get("next") if times and min(times) >= start - lead else None
+            if n % 25 == 0:
+                f.flush()
+                print(f"{n}/{len(ids)} vehicles, {journeys} journeys, {written} points")
+    print(f"done: {journeys} journeys, {written} points -> {out_path}")
+
+
 def bbox_from_args(args):
     return {"xmin": args.xmin, "ymin": args.ymin, "xmax": args.xmax, "ymax": args.ymax}
 
@@ -274,9 +361,23 @@ def main():
         "--outdir", type=Path, default=DEFAULT_OUTDIR, help="where to write data (default ./raw)"
     )
 
+    history_p = sub.add_parser("history", help="fetch past journeys' recorded tracks for a time window")
+    history_p.add_argument("--start", type=datetime.fromisoformat, required=True)
+    history_p.add_argument("--end", type=datetime.fromisoformat, required=True)
+    history_p.add_argument("--vehicles-from", type=Path, help="a pings CSV whose vehicle ids to include")
+    history_p.add_argument("--operators", nargs="*", default=["LOTH"])
+    history_p.add_argument("--out", type=Path, required=True)
+
     args = parser.parse_args()
 
-    if args.command == "test":
+    if args.command == "history":
+        ids = set()
+        if args.vehicles_from:
+            with open(args.vehicles_from, newline="") as f:
+                ids = {int(r["vehicle_id"]) for r in csv.DictReader(f) if r["vehicle_id"].lstrip("-").isdigit()
+                       and int(r["vehicle_id"]) > 0}
+        run_history(ids, args.operators, args.start, args.end, args.out)
+    elif args.command == "test":
         sys.exit(run_test(bbox_from_args(args)))
     elif args.command == "collect":
         try:
