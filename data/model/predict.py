@@ -55,7 +55,8 @@ def single_source(speeds):
     return sources[0]
 
 
-def prediction_table(speeds, graph, betweenness, flags=None, aadf=None, bbox=STUDY_BBOX):
+def prediction_table(speeds, graph, betweenness, flags=None, aadf=None, concerns=None,
+                     bbox=STUDY_BBOX):
     """Return the prediction table for every study-area bus road and bin of the night."""
     source = single_source(speeds)
     speeds = speeds.assign(
@@ -69,10 +70,11 @@ def prediction_table(speeds, graph, betweenness, flags=None, aadf=None, bbox=STU
     )
     keys = [(edge, when) for edge in edges for when in night_bins(speeds)]
 
-    train = build_feature_table(speeds, graph, betweenness, flags, aadf)
+    train = build_feature_table(speeds, graph, betweenness, flags, aadf, concerns)
     columns = feature_columns(train)
     model = make_model().fit(train[columns], train[TARGET])
-    features = build_prediction_features(keys, speeds, graph, betweenness, source, flags, aadf)
+    features = build_prediction_features(keys, speeds, graph, betweenness, source, flags, aadf,
+                                         concerns)
     predicted = model.predict(features.reindex(columns=columns)).clip(min=0.0)
 
     seen = observed.set_index(["edge_id", "bin_start_utc"])[[TARGET, "n_traversals"]]

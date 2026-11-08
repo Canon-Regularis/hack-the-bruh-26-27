@@ -16,7 +16,6 @@ TARGET = "mean_bus_observed_speed_kmh"
 FILL_VALUE = -1.0
 ROW_KEYS = ["edge_id", "bin_start_utc", "street_name", "source"]
 NOT_FEATURES = {*ROW_KEYS, TARGET}
-ALWAYS_MISSING = ["concern_intensity"]  # no source exists yet
 
 
 def targets(speeds):
@@ -24,7 +23,7 @@ def targets(speeds):
     return speeds[(speeds["n_traversals"] > 0) & speeds[TARGET].notna()]
 
 
-def build_feature_table(speeds, graph, betweenness, flags=None, aadf=None):
+def build_feature_table(speeds, graph, betweenness, flags=None, aadf=None, concerns=None):
     """Return the feature table for every target row in the edge-speed table."""
     make_row = row_builder(speeds, graph, betweenness)
     rows = [
@@ -32,10 +31,11 @@ def build_feature_table(speeds, graph, betweenness, flags=None, aadf=None):
          TARGET: getattr(row, TARGET)}
         for row in targets(speeds).itertuples(index=False)
     ]
-    return finish(pd.DataFrame(rows), flags, aadf)
+    return finish(pd.DataFrame(rows), flags, aadf, concerns)
 
 
-def build_prediction_features(keys, speeds, graph, betweenness, source, flags=None, aadf=None):
+def build_prediction_features(keys, speeds, graph, betweenness, source, flags=None, aadf=None,
+                              concerns=None):
     """Return feature rows, built as for training, for (edge_id, bin) pairs with no target.
 
     Lag still comes only from bus-observed rows in the bins before each key.
@@ -45,7 +45,7 @@ def build_prediction_features(keys, speeds, graph, betweenness, source, flags=No
         make_row(edge_id, graph.edge(int(edge_id)).street_name, source, when)
         for edge_id, when in keys
     ]
-    return finish(pd.DataFrame(rows), flags, aadf)
+    return finish(pd.DataFrame(rows), flags, aadf, concerns)
 
 
 def row_builder(speeds, graph, betweenness):
@@ -70,10 +70,10 @@ def row_builder(speeds, graph, betweenness):
     return make_row
 
 
-def finish(table, flags, aadf):
+def finish(table, flags, aadf, concerns=None):
     """Join the optional per-edge files, then fill and flag missing values."""
     optional = ["betweenness", "lag_speed_kmh"]
-    for extra in (flags, aadf):
+    for extra in (flags, aadf, concerns):
         if extra is not None and not table.empty:
             table = table.merge(extra, on="edge_id", how="left")
             optional += [c for c in extra.columns if c != "edge_id"]
@@ -94,9 +94,11 @@ def feature_columns(table):
     return [column for column in table.columns if column not in NOT_FEATURES]
 
 
-def missing_inputs(flags, aadf):
+def missing_inputs(flags, aadf, concerns=None):
     """Return the names of feature inputs that do not exist yet, sorted."""
-    missing = list(ALWAYS_MISSING)
+    missing = []
+    if concerns is None:
+        missing.append("concern_intensity")
     if flags is None:
         missing.append("restriction_flags")
     if aadf is None:
