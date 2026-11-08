@@ -3,6 +3,13 @@ raw/*
 !raw/delete_this.txt
 derived/
 graph/
+
+# Pipeline output: rebuild it by rerunning the scripts. The clauses quote the order texts in raw/, so they stay out too.
+demand/
+concerns/
+rules/
+decide/*
+!decide/candidates.json
 .env
 .env.*
 
