@@ -8,7 +8,9 @@ any edges fully crossed in between (via the library's own public
 shortest_path, the same formula its internal _route_distance uses), and the
 entered stretch of the second edge. A pair with no route between its matched
 points -- map_match's own "break" case -- is dropped rather than given a
-made-up distance.
+made-up distance. A pair implying more than MAX_PAIR_SPEED_KMH is dropped as a
+bad match. A backward move under MAX_DRIFT_BACK_M on the same edge is GPS
+drift on a parked bus, so it counts as 0 m and its dwell is kept.
 """
 
 from dataclasses import dataclass
@@ -20,6 +22,8 @@ from matching.trips import split_trips
 
 SOURCES = {"observed", "synthetic"}
 MATCH_MODE = "bus"
+MAX_PAIR_SPEED_KMH = 80.0
+MAX_DRIFT_BACK_M = 10.0
 
 
 @dataclass(frozen=True)
@@ -68,9 +72,9 @@ def _edge_metres(graph, c0, c1):
     eb = graph.edge(c1.eid)
     if c0.eid == c1.eid:
         metres = (c1.offset_frac - c0.offset_frac) * ea.length_m
-        if metres < 0:
+        if metres < -MAX_DRIFT_BACK_M:
             return None  # backward along the same edge: not a real transition
-        return [(str(c0.eid), metres)]
+        return [(str(c0.eid), max(metres, 0.0))]
 
     path = sn.shortest_path(graph, ea.v, eb.u, weight="length_m", mode=MATCH_MODE)
     if path is None:
@@ -82,6 +86,14 @@ def _edge_metres(graph, c0, c1):
     return [(str(c0.eid), remaining), *middle, (str(c1.eid), entered)]
 
 
+def _too_fast(edges, seconds):
+    """True if the pair's total metres over its seconds is above MAX_PAIR_SPEED_KMH."""
+    if seconds <= 0:
+        return False  # PingPair rejects it with a clear error
+    metres = sum(m for _, m in edges)
+    return metres / seconds * 3.6 > MAX_PAIR_SPEED_KMH
+
+
 def match_trip(graph, idx, trip):
     """Match one vehicle's trip (>=2 Ping) and return its PingPair rows."""
     points = [(p.lat, p.lon) for p in trip]
@@ -90,7 +102,8 @@ def match_trip(graph, idx, trip):
     pairs = []
     for i in range(len(trip) - 1):
         edges = _edge_metres(graph, result.chosen[i], result.chosen[i + 1])
-        if edges is None:
+        seconds = (trip[i + 1].time_utc - trip[i].time_utc).total_seconds()
+        if edges is None or _too_fast(edges, seconds):
             continue
         pairs.append(
             PingPair(
