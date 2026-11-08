@@ -1,6 +1,6 @@
 """Candidate interventions as Network transforms, with the rule filter (ALG-S2-1, #26).
 
-Candidates are hand-written in data/decide/candidates.json by street name. Each design
+Candidates are written to data/decide/candidates.json by street name by propose_candidates.py. Each design
 (a set of candidates) becomes a modified Network for #28's search. Run from the repo root:
 ``python -m src.decide.interventions``.
 """

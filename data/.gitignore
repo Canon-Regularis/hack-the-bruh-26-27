@@ -8,8 +8,7 @@ graph/
 demand/
 concerns/
 rules/
-decide/*
-!decide/candidates.json
+decide/
 .env
 .env.*
 

@@ -35,12 +35,8 @@ def test_sample_data_is_not_gitignored():
         "demand/od_matrix.json", "demand/baseline_user_equilibrium.csv", "demand/scenarios.json",
         "concerns/concern_field.csv", "rules/restriction_flags.csv", "rules/policy_check.json",
         "decide/design_search_checkpoint.jsonl", "decide/best_trade_offs.json", "decide/designs/knee.csv",
+        "decide/candidates.json",
     ],
 )
 def test_pipeline_output_is_gitignored(path):
     assert is_ignored(path)
-
-
-@pytest.mark.parametrize("path", ["decide/candidates.json"])
-def test_hand_written_inputs_are_not_gitignored(path):
-    assert not is_ignored(path)
