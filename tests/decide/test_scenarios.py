@@ -9,13 +9,13 @@ from src.decide import scenarios as sc
 
 @pytest.fixture(scope="module")
 def graph():
-    """A short two-way Johnston Terrace beside an unrelated one-way street."""
+    """A short two-way The Mound beside an unrelated one-way street."""
     g = sn.RoadGraph()
     for n, lon in enumerate((-3.200, -3.198, -3.196)):
         g.add_node(n, lat=55.948, lon=lon)
     g.add_node(3, lat=55.950, lon=-3.198)
-    g.add_edge(0, 1, oneway=False, highway_class="tertiary", street_name="Johnston Terrace")
-    g.add_edge(1, 2, oneway=False, highway_class="tertiary", street_name="Johnston Terrace")
+    g.add_edge(0, 1, oneway=False, highway_class="tertiary", street_name="The Mound")
+    g.add_edge(1, 2, oneway=False, highway_class="tertiary", street_name="The Mound")
     g.add_edge(1, 3, highway_class="residential", street_name="Castle Wynd")
     return g
 
@@ -71,8 +71,8 @@ def test_reduction_rejects_k_out_of_range():
 
 def test_closure_edges_are_both_directions_as_strings(graph):
     ids = sc.closure_edges(graph)
-    johnston = sorted((str(e.eid) for e in graph.iter_edges() if e.street_name == "Johnston Terrace"), key=int)
-    assert ids == johnston and len(ids) == 4
+    mound = sorted((str(e.eid) for e in graph.iter_edges() if e.street_name == "The Mound"), key=int)
+    assert ids == mound and len(ids) == 4
 
 
 def test_closure_edges_raise_when_the_street_is_missing(graph):
