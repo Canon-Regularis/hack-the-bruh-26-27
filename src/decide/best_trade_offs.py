@@ -19,9 +19,11 @@ dropped from the trade-offs, with its reason. Stand-in for the held policy_compi
 pareto_set. Run from the repo root: ``python -m src.decide.best_trade_offs``.
 """
 
+import argparse
 import csv
 import json
 import multiprocessing
+import sys
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -239,10 +241,17 @@ def _scores(d: dict, voice_status: str) -> dict:
     return {**{name: d[name] for name in OBJECTIVES}, **voice}
 
 
-def main() -> None:
+def main(argv: list[str] = ()) -> None:
     """Write the best trade-offs, hypervolume and picks with their diffs, and re-solve each pick under
     baseline conditions to write its per-edge flows and times in #24's format.
+
+    With --no-resolve nothing is solved again: the picks come from the search's own scores, with no
+    J_voice and no per-edge flows files (so #40's emissions can't run).
     """
+    parser = argparse.ArgumentParser(prog="python -m src.decide.best_trade_offs")
+    parser.add_argument("--no-resolve", action="store_true",
+                        help="pick from the search's scores without solving again: no J_voice, no flows files")
+    args = parser.parse_args(list(argv))
     search = json.loads(SEARCH_PATH.read_text(encoding="utf-8"))
     if not any(d["feasible"] for d in search["designs"]):
         raise ValueError(f"no feasible design in {SEARCH_PATH}, so there are no trade-offs to pick from")
@@ -251,7 +260,11 @@ def main() -> None:
         raise ValueError(f"the candidates, scenarios, OD matrix, network or settings have changed since "
                          f"{SEARCH_PATH} was written; rerun the design search")
 
-    designs, objectives, voice = score_voice(context, search["designs"])
+    if args.no_resolve:
+        designs, objectives = search["designs"], OBJECTIVES
+        voice = {"status": NOT_COMPUTED, "reason": "--no-resolve: no design was solved again under baseline conditions"}
+    else:
+        designs, objectives, voice = score_voice(context, search["designs"])
     voiced = voice["status"] != NOT_COMPUTED
     status = voice["status"]
     trade_offs, volume = trade_offs_and_hypervolume(designs, objectives)
@@ -260,34 +273,39 @@ def main() -> None:
     picks = pick_designs(trade_offs, objectives)
 
     car_edges = set(context["link_to_edge"])
-    DESIGNS_DIR.mkdir(parents=True, exist_ok=True)
-    rows_by_mask = {}
-    for mask in {d["mask"] for d in picks.values()}:
-        net, _, _, result = solve(context, mask, BASELINE)
-        if not result.converged:
-            raise RuntimeError(f"design {mask} did not converge under baseline conditions: "
-                               f"relative gap {result.relative_gap:.2e}")
-        rows_by_mask[mask] = ue_rows(net, result)
-    for role, design in picks.items():
-        with (DESIGNS_DIR / f"{role}.csv").open("w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=UE_FIELDS)
-            writer.writeheader()
-            writer.writerows(rows_by_mask[design["mask"]])
-    if "voice_best" not in picks:
-        (DESIGNS_DIR / "voice_best.csv").unlink(missing_ok=True)   # left by an earlier run with J_voice optimised
+    if args.no_resolve:
+        for stale in DESIGNS_DIR.glob("*.csv"):
+            stale.unlink()
+    else:
+        DESIGNS_DIR.mkdir(parents=True, exist_ok=True)
+        rows_by_mask = {}
+        for mask in {d["mask"] for d in picks.values()}:
+            net, _, _, result = solve(context, mask, BASELINE)
+            if not result.converged:
+                raise RuntimeError(f"design {mask} did not converge under baseline conditions: "
+                                   f"relative gap {result.relative_gap:.2e}")
+            rows_by_mask[mask] = ue_rows(net, result)
+        for role, design in picks.items():
+            with (DESIGNS_DIR / f"{role}.csv").open("w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=UE_FIELDS)
+                writer.writeheader()
+                writer.writerows(rows_by_mask[design["mask"]])
+        if "voice_best" not in picks:
+            (DESIGNS_DIR / "voice_best.csv").unlink(missing_ok=True)   # left by an earlier run with J_voice optimised
 
     TRADE_OFFS_PATH.write_text(json.dumps({
         "objectives": objectives,
         "reference": [REFERENCE] * len(objectives),
         "hypervolume": volume,
         "hour": search["hour"],
-        "flows_conditions": "baseline: demand x1.0, no scenario closure, as in #24",
+        "flows_conditions": None if args.no_resolve else "baseline: demand x1.0, no scenario closure, as in #24",
         "j_voice": voice,
         "trade_offs": [{"mask": d["mask"], "candidates": d["candidates"], **_scores(d, status)}
                        for d in trade_offs],
         "picks": {role: {"mask": d["mask"], "candidates": d["candidates"], **_scores(d, status),
                          **({"j_voice_by_theme": d["j_voice_by_theme"]} if voiced else {}),
-                         "diff": design_diff(d, context["candidates"], car_edges), "flows_file": f"designs/{role}.csv"}
+                         "diff": design_diff(d, context["candidates"], car_edges),
+                         **({} if args.no_resolve else {"flows_file": f"designs/{role}.csv"})}
                   for role, d in picks.items()},
     }, indent=1, allow_nan=False), encoding="utf-8")
     print(f"{len(trade_offs)} best trade-offs over {len(objectives)} objectives, hypervolume {volume:.3f} "
@@ -297,4 +315,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])
