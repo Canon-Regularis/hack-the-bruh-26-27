@@ -5,8 +5,34 @@ import pytest
 
 from engine.orchid import street_network as sn
 from src.graph.build_graph import (
-    build_graph, bus_stops, highway_class, load_graph, oneway_direction, read_osm, street_names,
+    build_graph, bus_stops, highway_class, load_graph, maxspeed_kph, oneway_direction, read_osm, street_names,
 )
+
+MPH = 1.609344
+
+
+@pytest.mark.parametrize("value, kph", [
+    ("20 mph", 20 * MPH), ("20mph", 20 * MPH), (" 30 MPH ", 30 * MPH), ("30", 30.0), ("48.5", 48.5),
+    ("none", None), ("signals", None), ("walk", None), ("0", None), ("", None), (None, None),
+])
+def test_maxspeed_kph(value, kph):
+    tags = {} if value is None else {"maxspeed": value}
+    assert maxspeed_kph(tags) == (pytest.approx(kph) if kph else None)
+
+
+def test_build_graph_takes_speed_from_osm_maxspeed_else_the_class_default(tmp_path):
+    path = tmp_path / "osm.json"
+    path.write_text(json.dumps({"elements": [
+        {"type": "node", "id": n, "lat": 55.949, "lon": -3.199 + 0.001 * n} for n in (1, 2, 3)] + [
+        {"type": "way", "id": 1, "nodes": [1, 2], "tags": {"highway": "tertiary", "maxspeed": "20 mph"}},
+        {"type": "way", "id": 2, "nodes": [2, 3], "tags": {"highway": "tertiary"}},
+    ]}))
+    edges = {e.tags["osm"]["way_id"]: e for e in build_graph(read_osm(path)).iter_edges()}
+    limited, default = edges[1], edges[2]
+    assert limited.speed_limit_kph == pytest.approx(20 * MPH)
+    assert limited.free_flow_time_s == pytest.approx(limited.length_m / (20 * MPH / 3.6))
+    assert limited.tags["osm"]["maxspeed"] == "20 mph"
+    assert default.speed_limit_kph == sn.HIGHWAY_DEFAULTS["tertiary"]["speed_kph"]
 
 
 def node(nid, lat, lon, **tags):
