@@ -67,21 +67,36 @@ def load_context() -> dict:
             "scenarios": json.loads(SCENARIOS_PATH.read_text(encoding="utf-8"))["kept"]}
 
 
+def chosen(candidates: list[dict], mask: int) -> list[dict]:
+    """Return the candidates a mask switches on: bit i is candidate i."""
+    return [c for bit, c in enumerate(candidates) if mask >> bit & 1]
+
+
+def solve(context: dict, mask: int, scenario: dict
+          ) -> tuple[ta.Network, list[str], list[dict], ta.AssignmentResult]:
+    """Apply a design plus a scenario's closure, scale the OD, and solve with Algorithm B,
+    retrying once with more iterations if it doesn't converge.
+
+    Returns the design's network, link -> edge ids, crossings and the result. Raises
+    TrafficAssignmentError if a closure cuts a zone off.
+    """
+    net, links, crossings = apply_design(context["net"], context["link_to_edge"], context["crossings"],
+                                         chosen(context["candidates"], mask), scenario["closed_edge_ids"])
+    od = context["od"].scaled(scenario["multiplier"])
+    result = ta.user_equilibrium(net, od, method="b", max_iter=MAX_ITERATIONS)
+    if not result.converged:
+        result = ta.user_equilibrium(net, od, method="b", max_iter=MAX_ITERATIONS * RETRY_ITERATION_FACTOR)
+    return net, links, crossings, result
+
+
 def evaluate(context: dict, mask: int, scenario: dict) -> dict:
     """Run one design under one scenario.
 
-    Applies the mask's candidates plus the scenario's closure, scales the OD, and solves
-    with Algorithm B, retrying once with more iterations if it doesn't converge. Returns
-    J_car (total travel time) and J_ped, or why the run is infeasible.
+    Returns J_car (total travel time) and J_ped, or why the run is infeasible: a zone cut
+    off, or no convergence even after the retry.
     """
-    design = [c for bit, c in enumerate(context["candidates"]) if mask >> bit & 1]
-    net, links, crossings = apply_design(context["net"], context["link_to_edge"], context["crossings"], design,
-                                         scenario["closed_edge_ids"])
-    od = context["od"].scaled(scenario["multiplier"])
     try:
-        result = ta.user_equilibrium(net, od, method="b", max_iter=MAX_ITERATIONS)
-        if not result.converged:
-            result = ta.user_equilibrium(net, od, method="b", max_iter=MAX_ITERATIONS * RETRY_ITERATION_FACTOR)
+        _, links, crossings, result = solve(context, mask, scenario)
     except ta.TrafficAssignmentError as e:
         return {"feasible": False, "reason": str(e)}
     if not result.converged:
@@ -141,7 +156,7 @@ def summarise(context: dict, results: dict[tuple[int, str], dict]) -> list[dict]
     designs = []
     for mask in range(1 << len(candidates)):
         runs = [results[(mask, s["id"])] for s in scenarios]
-        entry = {"mask": mask, "candidates": [c["id"] for bit, c in enumerate(candidates) if mask >> bit & 1]}
+        entry = {"mask": mask, "candidates": [c["id"] for c in chosen(candidates, mask)]}
         failed = [f"{s['id']}: {r['reason']}" for s, r in zip(scenarios, runs) if not r["feasible"]]
         if failed:
             entry.update(feasible=False, reason="; ".join(failed))

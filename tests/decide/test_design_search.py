@@ -4,43 +4,15 @@ from types import SimpleNamespace
 import pytest
 
 from engine.orchid import stochastic_optimisation as so
-from engine.orchid import street_network as sn
 from engine.orchid import traffic_assignment as ta
 from src.decide import design_search as ds
-from src.decide import interventions as iv
-from src.decide.network import link_maps, to_network
-from src.decide.pedestrian_crossing_delay import find_crossings, j_ped
-
-ZEBRA = {"highway": "crossing", "crossing": "uncontrolled"}
-NORMAL = {"id": "normal", "multiplier": 1.0, "closed_edge_ids": [], "probability": 0.8}
-SOUTH_SHUT = {"id": "event-south-closed", "multiplier": 1.5, "closed_edge_ids": ["4", "5", "6", "7"], "probability": 0.2}
+from src.decide.pedestrian_crossing_delay import j_ped
+from tests.decide.two_route import NORMAL, SOUTH_SHUT, build_context, build_graph
 
 
 @pytest.fixture(scope="module")
-def graph():
-    """Two routes from 0 to 3: North Road via 1 (zebra at 1) and South Road via 2, plus a spur 3-4."""
-    g = sn.RoadGraph()
-    for nid, (lat, lon) in enumerate([(55.949, -3.200), (55.950, -3.199), (55.948, -3.199),
-                                      (55.949, -3.198), (55.949, -3.197)]):
-        g.add_node(nid, lat=lat, lon=lon, osm=ZEBRA if nid == 1 else {})
-    for u, v, name in [(0, 1, "North Road"), (1, 3, "North Road"), (0, 2, "South Road"), (2, 3, "South Road"),
-                       (3, 4, "Spur")]:
-        g.add_edge(u, v, oneway=False, street_name=name, highway_class="tertiary")
-    return g
-
-
-@pytest.fixture(scope="module")
-def context(graph, tmp_path_factory):
-    path = tmp_path_factory.mktemp("decide") / "candidates.json"
-    path.write_text(json.dumps([{"id": "close-north", "kind": "close", "street": "North Road"},
-                                {"id": "bus-lane-south", "kind": "reallocate", "street": "South Road",
-                                 "capacity_factor": 0.5}]))
-    crossings = find_crossings(graph)
-    net, _ = to_network(graph)
-    return {"net": net, "link_to_edge": link_maps(net)[1], "hour": "08:00-09:00 weekday", "crossings": crossings,
-            "od": ta.ODMatrix({(0, 3): 600.0, (3, 0): 300.0, (0, 4): 100.0}),
-            "candidates": iv.load_candidates(path, graph, crossings)[0], "abstained_keep_open": [],
-            "scenarios": [NORMAL, SOUTH_SHUT]}
+def context(tmp_path_factory):
+    return build_context(build_graph(), tmp_path_factory.mktemp("decide"))
 
 
 @pytest.mark.parametrize("losses, alpha", [
