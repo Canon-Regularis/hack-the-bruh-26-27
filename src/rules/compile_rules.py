@@ -2,8 +2,9 @@
 
 Replaces the #19 street lookup with a policy_compiler Gazetteer, the #20 binding and the
 #26 filter with compile_policy's CompiledFixings, and #31 with policy_check.
-The #20 glue (src/rules/bind_rules.py) stays as the reference: compare_with_glue lists
-every difference. Run from the repo root: ``python -m src.rules.compile_rules``.
+The #20 glue (src/rules/bind_rules.py) and the #31 check (src/rules/policy_check.py) stay as
+the reference: compare_with_glue and compare_policy_checks list every difference. Run from the
+repo root: ``python -m src.rules.compile_rules``.
 
 Clause strength is set by hand, never read from the quote. compile_policy always runs its
 English-wording reader (classify_wording) and abstains a hard clause whose wording reads
@@ -18,19 +19,37 @@ conditional rule (out of the all-day flags and the OSM count) where the glue abs
 duplicate or padded clause ids raise ValueError, because compile_policy keys everything by id.
 As in the glue, only the exact all-day phrase "at any time" compiles unconditionally; a blank
 or other time field that the grammar reads as all day ("", "no waiting", "at all times") is
-queued as unrepresentable. A design for check_design lists only the edges it closes on top of
-the status quo; the edges OSM already closes to cars are added (osm_closed_edges).
+queued as unrepresentable.
+
+A ban closes edges to cars (REMOVE_EDGE REQUIRE). A keep_open clause may not be closed or have
+its capacity cut: REMOVE_EDGE PROHIBIT pins z=1, and REPARTITION PERMIT bounds the capacity
+factor to [1, max float], so a cut below 1 is flagged and a widening is not, as in #31. Like
+the glue, keep_open skips the exemptions and time checks and applies all day. The keep_open
+clauses go through compile_policy in a pass of their own: in one pass a ban and a keep_open
+clause on the same edge are a zero_vs_one conflict, which queues both and would drop the ban
+from the flags and the OSM count. The glue applies both and #31 judges each alone, so the
+legal outputs come from the bans alone, and keep_open_overlaps lists such pairs for review.
+
+check_diff judges a #29 design diff on the modelled car network, as #31 does: an edge OSM
+closes to cars but the model keeps as a car link still counts as open. check_design is the
+older status-quo view, which adds the edges OSM closes (osm_closed_edges) to the design for
+the bans only; a keep_open clause is judged on the design's own closures.
 """
 
 import csv
+import json
+import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
 from engine.orchid import policy_compiler as pc
 from engine.orchid import street_network as sn
+from src.decide.best_trade_offs import TRADE_OFFS_PATH
+from src.decide.network import link_maps, to_network
 from src.graph.build_graph import load_graph
 from src.graph.street_lookup import normalise_name
 from src.rules import bind_rules as br
+from src.rules import policy_check as glue_check
 
 CLAUSES_PATH = br.CLAUSES_PATH
 SOURCES_DIR = br.SOURCES_DIR
@@ -38,6 +57,20 @@ FLAGS_PATH = br.FLAGS_PATH
 
 HARD_WORDING = "shall"   # classify_wording reads this as an obligation, which the gate never abstains
 SOFT_MODALITIES = ("recommendation", "discouragement")   # the gate's test in compile_policy
+
+CAPACITY = "capacity"   # y variable "capacity:<eid>" holds a #29 capacity factor; must be colon-free
+BAN_RULINGS = pc.make_rulings(REMOVE_EDGE="REQUIRE")
+KEEP_OPEN_RULINGS = pc.make_rulings(REMOVE_EDGE="PROHIBIT", REPARTITION="PERMIT")
+KEEP_OPEN_BOUNDS = {CAPACITY: (1.0, sys.float_info.max)}   # PolicyClause refuses inf; a widening is fine
+
+EXPLANATIONS = {
+    "nothing_to_close": "one-way street OSM already has the right way round: #31 says satisfied, "
+                        "policy_check not_applicable (no_operation)",
+    "time_window": "the compiler accepts the time window where #31 abstains it: a conditional rule checked "
+                   "as active, or a timed one-way street OSM already has right (nothing to close)",
+    "compile_outcome": "the compiler and the #20 glue bind or refuse the clause differently (compare_with_glue)",
+    "unexplained": "not explained",
+}
 
 
 class Refused(ValueError):
@@ -51,7 +84,8 @@ class Refused(ValueError):
 
 @dataclass
 class Compiled:
-    result: pc.CompilationResult
+    result: pc.CompilationResult                             # every clause but keep_open: the legal restrictions
+    keep: pc.CompilationResult                               # the keep_open clauses, compiled apart
     order: list[str]                                         # clause ids in input order
     restriction: dict[str, str] = field(default_factory=dict)
     nothing_to_close: list[str] = field(default_factory=list)  # one-way streets OSM already has right (any times)
@@ -125,8 +159,10 @@ def _target(clause: dict, gazetteer: pc.Gazetteer, graph: sn.RoadGraph):
     Checks run in the glue's order after the span check, which compile_policy does itself.
     """
     restriction = clause["restriction"]
-    if restriction not in br.RESTRICTIONS:
+    if restriction not in br.CLAUSE_TYPES:
         raise Refused("unrepresentable", f"unknown restriction {restriction!r}")
+    if restriction == br.KEEP_OPEN:   # as in the glue: open for part of the day still can't be closed outright
+        return "street", clause["street"], None, None
     if clause["exemptions"] == "unspecified":
         raise Refused("unrepresentable", "exemptions are not listed")
     times = clause["times"]
@@ -153,33 +189,47 @@ def _target(clause: dict, gazetteer: pc.Gazetteer, graph: sn.RoadGraph):
 def to_policy_clause(clause: dict, gazetteer: pc.Gazetteer, graph: sn.RoadGraph, strength: str = "hard"):
     """Convert a glue clause into (PolicyClause or None, Refused or None, one-way GazetteerEntry or None).
 
-    Every restriction closes edges to cars: REMOVE_EDGE REQUIRE, everything else ABSTAIN.
-    A one-way clause targets an area entry holding only its wrong-way edges. A refused clause
+    Every restriction closes edges to cars: REMOVE_EDGE REQUIRE, everything else ABSTAIN;
+    keep_open gets KEEP_OPEN_RULINGS and KEEP_OPEN_BOUNDS. A one-way clause targets an area
+    entry holding only its wrong-way edges. A refused clause
     keeps all-ABSTAIN rulings, so compile_policy still verifies its quote and policy_check
     still gives it a row; a one-way street with nothing to close does the same, unrefused.
     strength is set by hand and wording is the constant HARD_WORDING, so the quote's English
     never changes the result. Returns no PolicyClause only if the schema refuses the clause.
     """
-    rulings = pc.make_rulings(REMOVE_EDGE="REQUIRE")
+    keep_open = clause["restriction"] == br.KEEP_OPEN
+    rulings, bounds = (KEEP_OPEN_RULINGS, KEEP_OPEN_BOUNDS) if keep_open else (BAN_RULINGS, {})
     try:
         kind, name, predicate, entry = _target(clause, gazetteer, graph)
         refusal = None
         if entry is None and clause["restriction"] == "one_way":
             rulings = pc.make_rulings()
     except Refused as e:
-        kind, name, predicate, entry, refusal, rulings = "street", clause["street"], None, None, e, pc.make_rulings()
+        kind, name, predicate, entry, refusal = "street", clause["street"], None, None, e
+        rulings, bounds = pc.make_rulings(), {}
     try:
         policy_clause = pc.PolicyClause(clause["clause_id"], clause["document_id"], clause["page"], clause["quote"],
-                                        kind, name, rulings, predicate=predicate, strength=strength,
+                                        kind, name, rulings, bounds=bounds, predicate=predicate, strength=strength,
                                         wording=HARD_WORDING)
     except pc.PolicyCompilerError as e:
         return None, Refused("unrepresentable", str(e)), None
     return policy_clause, refusal, entry
 
 
+def _compile(policy_clauses: list, refusals: dict, gazetteer: pc.Gazetteer,
+             sources: dict[str, str]) -> pc.CompilationResult:
+    res = pc.compile_policy(policy_clauses, gazetteer, sources=sources)
+    for cid, (clause, refusal) in refusals.items():
+        if cid not in res.clauses or res.skipped.get(cid) == "no_operation":
+            res.queue.add(pc.AbstentionItem(cid, refusal.reason, 1.0, refusal.candidates, clause.get("quote", ""),
+                                            clause.get("page", 0), clause.get("document_id", ""), str(refusal)))
+    return res
+
+
 def compile_rules(clauses: list[dict], sources: dict[str, str], graph: sn.RoadGraph) -> Compiled:
     """Compile every clause with compile_policy (no instruments), with refused clauses added to its queue.
 
+    Two passes, one for the keep_open clauses and one for the rest (see the module docstring).
     A refusal is queued only if compile_policy verified the clause's quote, so like the glue
     each clause shows its first reason. Strength comes from the clause's "strength" key
     (hand-written), else "hard". Raises ValueError for duplicate, empty or padded clause ids.
@@ -190,10 +240,12 @@ def compile_rules(clauses: list[dict], sources: dict[str, str], graph: sn.RoadGr
         raise ValueError(f"clause ids must be unique, non-empty and unpadded: {', '.join(bad)}")
     names = [c.get(k) for c in clauses for k in ("street", "from_street", "to_street")]
     gazetteer = build_gazetteer(graph, [n for n in names if isinstance(n, str)])
-    policy_clauses, refusals, extra, restriction, nothing_to_close = [], {}, [], {}, []
+    passes = {False: ([], {}), True: ([], {})}   # is keep_open -> (policy clauses, refusals)
+    extra, restriction, nothing_to_close = [], {}, []
     for clause in clauses:
         policy_clause, refusal, entry = to_policy_clause(clause, gazetteer, graph, clause.get("strength", "hard"))
         cid = clause["clause_id"]
+        policy_clauses, refusals = passes[clause["restriction"] == br.KEEP_OPEN]
         if refusal is not None:
             refusals[cid] = (clause, refusal)
         if entry is not None:
@@ -203,12 +255,13 @@ def compile_rules(clauses: list[dict], sources: dict[str, str], graph: sn.RoadGr
             restriction[cid] = clause["restriction"]
             if refusal is None and clause["restriction"] == "one_way" and entry is None:
                 nothing_to_close.append(cid)
-    res = pc.compile_policy(policy_clauses, _with_entries(gazetteer, extra), sources=sources)
-    for cid, (clause, refusal) in refusals.items():
-        if cid not in res.clauses or res.skipped.get(cid) == "no_operation":
-            res.queue.add(pc.AbstentionItem(cid, refusal.reason, 1.0, refusal.candidates, clause.get("quote", ""),
-                                            clause.get("page", 0), clause.get("document_id", ""), str(refusal)))
-    return Compiled(res, [c["clause_id"] for c in clauses], restriction, nothing_to_close)
+    gazetteer = _with_entries(gazetteer, extra)
+    bans, keep = (_compile(*passes[is_keep], gazetteer, sources) for is_keep in (False, True))
+    return Compiled(bans, keep, [c["clause_id"] for c in clauses], restriction, nothing_to_close)
+
+
+def _results(compiled: Compiled) -> tuple[pc.CompilationResult, pc.CompilationResult]:
+    return compiled.result, compiled.keep
 
 
 def clause_edges(compiled: Compiled) -> dict[str, set[str]]:
@@ -221,10 +274,39 @@ def clause_edges(compiled: Compiled) -> dict[str, set[str]]:
     return dict(edges)
 
 
+def kept_open(compiled: Compiled) -> dict[str, set[str]]:
+    """Map each keep_open clause to the edges it keeps open, as the glue's Report.keep_open.
+
+    In their own pass keep_open clauses never conflict (they all pin z=1 and the same bounds),
+    and every other queue reason leaves a clause no fixings, so none of these is queued.
+    """
+    edges = defaultdict(set)
+    for key, cids in compiled.keep.fixings.to_dict()["provenance"].items():
+        if key.startswith("fixedOne:"):
+            for cid in cids:
+                edges[cid].add(key.removeprefix("fixedOne:"))
+    return {cid: edges[cid] for cid in compiled.order if cid in edges}
+
+
+def keep_open_overlaps(compiled: Compiled) -> list[tuple[str, str, list[str]]]:
+    """Return (ban, keep_open clause, shared edges) for each ban that closes, at some time of
+    day, an edge a keep_open clause keeps open, for a human to review.
+
+    In one compile_policy pass such a pair is a conflict; the two passes keep both, as the glue does.
+    """
+    kept, out = kept_open(compiled), []
+    for ban in compiled.order:
+        if (fx := compiled.result.per_clause.get(ban)) is None:   # refused or unbound: closes nothing
+            continue
+        closes = set(fx.fixed_zero).union(*(cf.fixing.fixed_zero for cf in fx.conditional))
+        out += [(ban, cid, sorted(closes & edges, key=int)) for cid, edges in kept.items() if closes & edges]
+    return out
+
+
 def abstained(compiled: Compiled) -> list[tuple[str, str]]:
     """Return (clause_id, "reason: detail; ...") for every queued clause, in input order."""
     why = defaultdict(list)
-    for item in compiled.result.queue.items():
+    for item in (i for res in _results(compiled) for i in res.queue.items()):
         why[item.clause_id].append(f"{item.reason}: {item.detail}" if item.detail else item.reason)
     return [(cid, "; ".join(why[cid])) for cid in compiled.order if cid in why]
 
@@ -308,20 +390,142 @@ def osm_closed_edges(graph: sn.RoadGraph) -> set[str]:
             if br.osm_agrees("no_motor_vehicles", e) or br.osm_agrees("pedestrian_only", e)}
 
 
+def compliance_ratio(rows: list[dict]) -> float:
+    """Return satisfied / (satisfied + in_tension), or 1, as policy_check's compliance ratio."""
+    counts = Counter(r["status"] for r in rows)
+    judged = counts["satisfied"] + counts["in_tension"]
+    return counts["satisfied"] / judged if judged else 1.0
+
+
 def check_design(closed_eids, compiled: Compiled, graph: sn.RoadGraph, scenario=None) -> tuple[list[dict], float]:
     """Check a design (the edges it closes to cars) clause by clause with pc.policy_check.
 
-    closed_eids are the design's closures on top of the status quo: the edges OSM already
-    closes to cars are added, so the status quo (closed_eids empty) satisfies every ban OSM
-    already shows. A design can't reopen them. Returns rows of clause_id, status, quote,
-    page, violated and detail, and the compliance ratio. Without a scenario, time-limited
-    clauses are checked as if active.
+    The status-quo view: closed_eids are the design's closures on top of the status quo. For
+    the bans the edges OSM already closes to cars are added, so the status quo (closed_eids
+    empty) satisfies every ban OSM already shows; a keep_open clause is judged on closed_eids
+    alone, so the status quo never closes a street it keeps open. These designs have no
+    capacity factors (check_diff's do). #31 instead judges the modelled car network, where an
+    OSM-closed edge can still be a car link; check_diff does that. Returns rows of clause_id,
+    status, quote, page, violated and detail in input order, and the compliance ratio.
+    Without a scenario, time-limited clauses are checked as if active.
     """
-    closed = {str(e) for e in closed_eids} | osm_closed_edges(graph)
-    report = pc.policy_check(design_from_closed(closed, graph), compiled.result, scenario)
-    rows = [{"clause_id": r.clause_id, "status": r.status, "quote": r.quote, "page": r.page,
-             "violated": r.violated, "detail": r.detail} for r in report.rows]
-    return rows, report.compliance_ratio
+    closed = {str(e) for e in closed_eids}
+    reports = (pc.policy_check(design_from_closed(closed | osm_closed_edges(graph), graph), compiled.result,
+                               scenario),
+               pc.policy_check(design_from_closed(closed, graph), compiled.keep, scenario))
+    position = {cid: i for i, cid in enumerate(compiled.order)}
+    rows = sorted(({"clause_id": r.clause_id, "status": r.status, "quote": r.quote, "page": r.page,
+                    "violated": r.violated, "detail": r.detail} for rep in reports for r in rep.rows),
+                  key=lambda r: position[r["clause_id"]])
+    return rows, compliance_ratio(rows)
+
+
+def car_edges(graph: sn.RoadGraph) -> set[str]:
+    """Return the str ids of the base network's car links, the set #29 and #31 use."""
+    return set(link_maps(to_network(graph)[0])[1])
+
+
+def design_from_diff(diff: dict, car_edges: set[str]) -> pc.Design:
+    """Return the policy_compiler Design for a #29 design diff, keyed by the same str edge ids.
+
+    z=1 for each open car edge and z=0 for each closed edge. Edges that aren't car links are
+    left out: policy_check reads a missing edge as closed for a ban and leaves it unjudged for
+    a keep_open clause, as #31 does. y holds each capacity factor as "capacity:<eid>"; an
+    uncut edge needs none.
+    """
+    closed = {str(e) for e in diff["closed_edge_ids"]}
+    z = {str(e): 0 if str(e) in closed else 1 for e in car_edges} | dict.fromkeys(closed, 0)
+    y = {f"{CAPACITY}:{e}": float(f) for e, f in diff["capacity_factors"].items()}
+    return pc.Design(z=z, y=y, w={}, k={})
+
+
+def violated_edges(keys) -> list[str]:
+    """Return the edge ids in policy_check's violated keys (fixedZero:e, fixedOne:e, bounds:capacity:e)."""
+    eids = {k.split(":", 2)[2] if k.startswith("bounds:") else k.split(":", 1)[1] for k in keys}
+    return sorted(eids, key=int)
+
+
+def check_diff(diff: dict, compiled: Compiled, car_edges: set[str], scenario=None) -> tuple[list[dict], float]:
+    """Check a #29 design diff clause by clause with pc.policy_check, on the modelled car network as #31 does.
+
+    Returns rows in input order (clause_id, status, edges in tension, violated, detail, quote,
+    page, document_id) and the compliance ratio. policy_check gives a clause the schema
+    refused no row, so it is reported abstained with its queue reason. Without a scenario,
+    time-limited clauses are checked as if active.
+    """
+    design = design_from_diff(diff, car_edges)
+    found = {r.clause_id: r for res in _results(compiled) for r in pc.policy_check(design, res, scenario).rows}
+    queued = {i.clause_id: i for res in _results(compiled) for i in res.queue.items()}
+    why = dict(abstained(compiled))
+    rows = []
+    for cid in compiled.order:
+        if (r := found.get(cid)) is not None:
+            rows.append({"clause_id": cid, "status": r.status, "edges": violated_edges(r.violated),
+                         "violated": r.violated, "detail": r.detail, "quote": r.quote, "page": r.page,
+                         "document_id": r.document_id})
+        elif (item := queued.get(cid)) is not None:
+            rows.append({"clause_id": cid, "status": "abstained", "edges": [], "violated": [], "detail": why[cid],
+                         "quote": item.quote, "page": item.page, "document_id": item.document_id})
+    return rows, compliance_ratio(rows)
+
+
+def _explain(cid: str, compiler: str, glue: str, compiled: Compiled, glue_differs: dict) -> str:
+    if cid in compiled.nothing_to_close and (compiler, glue) == ("not_applicable", "satisfied"):
+        return "nothing_to_close"
+    if cid in conditional(compiled) and glue == "abstained":
+        return "time_window"
+    return "compile_outcome" if cid in glue_differs else "unexplained"
+
+
+def compare_policy_checks(diffs: dict[str, dict], clauses: list[dict], sources: dict[str, str],
+                          graph: sn.RoadGraph, compiled: Compiled | None = None) -> list[dict]:
+    """Check each #29 diff with #31's check_design and with check_diff; return one row per (design, clause).
+
+    diffs maps a design name to its diff. Each row has design, clause_id, #31's status and
+    edges (glue, glue_edges), check_diff's (compiler, compiler_edges), and explanation: None
+    when both agree, else a key of EXPLANATIONS. Rows are in design order, then clause order.
+    """
+    compiled = compiled or compile_rules(clauses, sources, graph)
+    report = br.check_clauses(clauses, sources, graph)
+    cars, glue_why = car_edges(graph), dict(report.abstained)
+    glue_differs = compare_with_glue(clauses, sources, graph, compiled)["clauses"]
+    rows = []
+    for name, diff in diffs.items():
+        ours = {r["clause_id"]: r for r in check_diff(diff, compiled, cars)[0]}
+        for t in glue_check.check_design(diff, cars, clauses, report.clause_edges, glue_why):
+            cid, o = t["clause_id"], ours[t["clause_id"]]
+            agree = (o["status"], o["edges"]) == (t["status"], t["edges"])
+            rows.append({"design": name, "clause_id": cid, "glue": t["status"], "glue_edges": t["edges"],
+                         "compiler": o["status"], "compiler_edges": o["edges"],
+                         "explanation": None if agree else _explain(cid, o["status"], t["status"], compiled,
+                                                                    glue_differs)})
+    return rows
+
+
+def pick_diffs(picks: dict) -> dict[str, dict]:
+    """Return {design name: diff} for #29's picks, one per mask as #31 does, named by its roles ("knee, ...")."""
+    roles, diffs = defaultdict(list), {}
+    for role, pick in picks.items():
+        roles[pick["mask"]].append(role)
+        diffs[pick["mask"]] = pick["diff"]
+    return {", ".join(roles[mask]): diff for mask, diff in diffs.items()}
+
+
+def _status(status: str, edges: list[str]) -> str:
+    return f"{status} [{', '.join(edges)}]" if edges else status
+
+
+def print_policy_comparison(rows: list[dict]) -> None:
+    """Print, per design, how many clauses the two checks agree on and each difference with its explanation."""
+    designs = list(dict.fromkeys(r["design"] for r in rows))
+    print(f"Policy check against #31 on {len(designs)} picked designs:")
+    for name in designs:
+        mine = [r for r in rows if r["design"] == name]
+        print(f"  {name}: {sum(r['explanation'] is None for r in mine)} of {len(mine)} clauses agree")
+        for r in mine:
+            if r["explanation"]:
+                print(f"    {r['clause_id']}: #31 {_status(r['glue'], r['glue_edges'])}; compiler "
+                      f"{_status(r['compiler'], r['compiler_edges'])} ({r['explanation']})")
 
 
 def wording_gate_flags(compiled: Compiled) -> list[tuple[str, str, str | None]]:
@@ -334,9 +538,10 @@ def wording_gate_flags(compiled: Compiled) -> list[tuple[str, str, str | None]]:
     policy_check.
     """
     cue_modality = {q: m for q, m, _p in pc.WORDING_CUES}
-    res, out = compiled.result, []
-    for cid in sorted(res.bindings):
-        w = pc.classify_wording(res.clauses[cid].quote)
+    quotes = {cid: res.clauses[cid].quote for res in _results(compiled) for cid in res.bindings}
+    out = []
+    for cid in sorted(quotes):
+        w = pc.classify_wording(quotes[cid])
         if w.modality in SOFT_MODALITIES or (w.modality == "neutral" and cue_modality.get(w.cue) in SOFT_MODALITIES):
             out.append((cid, w.modality, w.cue))
     return out
@@ -344,16 +549,18 @@ def wording_gate_flags(compiled: Compiled) -> list[tuple[str, str, str | None]]:
 
 def outcome(compiled: Compiled, cid: str) -> str:
     """Return what the compiler did with one clause, in words."""
-    res = compiled.result
     why = dict(abstained(compiled))
     if cid in why:
         return f"abstained ({why[cid]})"
     if cid in applied(compiled):
         return "applied" + (" (nothing to close)" if cid in compiled.nothing_to_close else "")
+    if cid in kept_open(compiled):
+        return "kept open"
     if cid in conditional(compiled):
         return ("compiled for its time window only (not in the all-day flags or the OSM check)"
                 + (" (nothing to close)" if cid in compiled.nothing_to_close else ""))
-    return f"skipped ({res.skipped.get(cid, 'nothing compiled')})"
+    skipped = {**compiled.result.skipped, **compiled.keep.skipped}
+    return f"skipped ({skipped.get(cid, 'nothing compiled')})"
 
 
 def compare_with_glue(clauses: list[dict], sources: dict[str, str], graph: sn.RoadGraph,
@@ -364,16 +571,18 @@ def compare_with_glue(clauses: list[dict], sources: dict[str, str], graph: sn.Ro
     the other, or abstained by the glue but neither applied nor abstained by the compiler
     (a time window it compiled, a soft clause); wrong_on_osm: clause ids in only one list;
     flags: edge ids whose rows differ. Expected differences: a time window the grammar reads
-    (glue abstains, compiler compiles it conditionally) and a street name the glue's exact
+    (glue abstains, compiler compiles it conditionally), a street name the glue's exact
     lookup misses but the gazetteer's fuzzy resolver binds (a typo).
     """
     compiled = compiled or compile_rules(clauses, sources, graph)
     report = br.check_clauses(clauses, sources, graph)
     glue_why, ours, our_why = dict(report.abstained), applied(compiled), dict(abstained(compiled))
-    differ = {}
+    kept, differ = kept_open(compiled), {}
     for cid in compiled.order:
-        if (cid in report.applied, cid in glue_why) != (cid in ours, cid in our_why):
-            glue = "applied" if cid in report.applied else f"abstained ({glue_why.get(cid, '?')})"
+        glue_state = (cid in report.applied, cid in report.keep_open, cid in glue_why)
+        if glue_state != (cid in ours, cid in kept, cid in our_why):
+            glue = ("applied" if cid in report.applied else "kept open" if cid in report.keep_open
+                    else f"abstained ({glue_why.get(cid, '?')})")
             differ[cid] = {"glue": glue, "compiler": outcome(compiled, cid)}
     glue_wrong, our_wrong = report.wrong_on_osm, wrong_on_osm(compiled, graph)
     glue_rows, our_rows = br.restriction_flags(report.bound, graph), restriction_flags(compiled, graph)
@@ -384,11 +593,11 @@ def compare_with_glue(clauses: list[dict], sources: dict[str, str], graph: sn.Ro
 
 
 def main() -> None:
-    """Compile every clause, write the flags CSV, and print the OSM mismatch count, abstentions and glue differences."""
+    """Compile every clause, write the flags CSV, and print the OSM mismatch count, abstentions,
+    the comparison with #31 on #29's picks (when they exist) and the glue differences."""
     graph = load_graph()
     clauses = br.load_clauses(CLAUSES_PATH)
-    sources = {doc: path.read_text(encoding="utf-8") for doc in {c["document_id"] for c in clauses}
-               if (path := SOURCES_DIR / f"{doc}.txt").exists()}
+    sources = br.load_sources(clauses, SOURCES_DIR)
     compiled = compile_rules(clauses, sources, graph)
     write_flags(restriction_flags(compiled, graph))
 
@@ -403,11 +612,21 @@ def main() -> None:
     print(f"{len(timed)} compiled for a time window only (not in the all-day flags):")
     for cid in timed:
         print(f"  {cid}")
+    print(f"{len(kept_open(compiled))} keep-open clauses compiled (may not be closed or have capacity cut)")
+    overlaps = keep_open_overlaps(compiled)
+    print(f"{len(overlaps)} bans on edges a keep-open clause keeps open (both kept, for review):")
+    for ban, keep, eids in overlaps:
+        print(f"  {ban} and {keep} on edges {', '.join(eids)}")
     gate = wording_gate_flags(compiled)
     print(f"{len(gate)} hard clauses whose quote the wording gate would have abstained (strength is set by hand;"
           " not applied, for review):")
     for cid, modality, cue in gate:
         print(f"  {cid}: {modality} wording {cue!r}")
+    if TRADE_OFFS_PATH.exists():
+        picks = json.loads(TRADE_OFFS_PATH.read_text(encoding="utf-8"))["picks"]
+        print_policy_comparison(compare_policy_checks(pick_diffs(picks), clauses, sources, graph, compiled))
+    else:
+        print(f"No #29 picks at {TRADE_OFFS_PATH}: skipped the comparison with the #31 policy check")
     diff = compare_with_glue(clauses, sources, graph, compiled)
     if not (diff["clauses"] or diff["wrong_on_osm"]["glue_only"] or diff["wrong_on_osm"]["compiler_only"]
             or diff["flags"]):
