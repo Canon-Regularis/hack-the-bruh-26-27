@@ -62,6 +62,7 @@ def test_evaluate_retries_with_more_iterations(context, monkeypatch):
 
     def solve(net, od, **kw):
         calls.append(kw["max_iter"])
+        assert kw["tol"] == ds.TOLERANCE
         result = real(net, od, **kw)
         return result if len(calls) > 1 else SimpleNamespace(converged=False)
 
@@ -88,7 +89,8 @@ def test_fingerprint_changes_when_any_input_changes(context, monkeypatch):
     assert ds.fingerprint({**context, "net": context["net"].with_scaled_capacity(0, 0.5)}) != base
     signalised = [{**c, "signalised": True} for c in context["crossings"]]
     assert ds.fingerprint({**context, "crossings": signalised}) != base
-    for module, name, value in [(ds.pcd, "CYCLE_S", 120.0), (ds.pcd, "MAX_WAIT_S", 90.0), (ds, "MAX_ITERATIONS", 50)]:
+    for module, name, value in [(ds.pcd, "CYCLE_S", 120.0), (ds.pcd, "MAX_WAIT_S", 90.0), (ds, "MAX_ITERATIONS", 50),
+                                 (ds, "TOLERANCE", 1e-6)]:
         with monkeypatch.context() as patch:
             patch.setattr(module, name, value)
             assert ds.fingerprint(context) != base
@@ -140,13 +142,35 @@ def test_summarise_weights_scenarios_and_explains_infeasible_designs(context):
                           "reason": "event-south-closed: unreachable"}
 
 
-def run_main(context, tmp_path, monkeypatch, capsys):
+def run_main(context, tmp_path, monkeypatch, capsys, *argv):
     monkeypatch.setattr(ds, "load_context", lambda: context)
     monkeypatch.setattr(ds, "CHECKPOINT_PATH", tmp_path / "decide" / "checkpoint.jsonl")
     monkeypatch.setattr(ds, "RESULTS_PATH", tmp_path / "decide" / "design_search.json")
     monkeypatch.setattr(ds, "WORKERS", 2)
-    ds.main()
-    return capsys.readouterr().out, json.loads((tmp_path / "decide" / "design_search.json").read_text())
+    ds.main(argv)
+    results = tmp_path / "decide" / "design_search.json"
+    return capsys.readouterr().out, json.loads(results.read_text()) if results.exists() else None
+
+
+def test_shards_split_the_runs_and_merge_into_the_same_summary(context, tmp_path, monkeypatch, capsys):
+    _, plain = run_main(context, tmp_path / "plain", monkeypatch, capsys)
+    split = tmp_path / "split"
+    out0, none0 = run_main(context, split, monkeypatch, capsys, "--shard", "0/2")
+    out1, none1 = run_main(context, split, monkeypatch, capsys, "--shard", "1/2")
+    assert none0 is None and none1 is None and "4 to go" in out0 and "4 to go" in out1
+    shards = [split / "decide" / f"checkpoint.shard{k}of2.jsonl" for k in range(2)]
+    keys = [{(r["mask"], r["scenario"]) for r in map(json.loads, p.read_text().splitlines()[1:])} for p in shards]
+    assert len(keys[0]) == len(keys[1]) == 4 and not keys[0] & keys[1]
+
+    out, merged = run_main(context, split, monkeypatch, capsys, "--merge", "2")
+    assert "8 runs already checkpointed, 0 to go" in out and merged == plain
+    out, again = run_main(context, split, monkeypatch, capsys, "--merge", "2")
+    assert len((split / "decide" / "checkpoint.jsonl").read_text().splitlines()) == 9 and again == plain
+
+
+def test_shard_rejects_an_index_outside_the_count(context, tmp_path, monkeypatch, capsys):
+    with pytest.raises(ValueError, match="0 <= K < N"):
+        run_main(context, tmp_path, monkeypatch, capsys, "--shard", "2/2")
 
 
 def test_main_runs_every_design_and_resumes_from_the_checkpoint(context, tmp_path, monkeypatch, capsys):

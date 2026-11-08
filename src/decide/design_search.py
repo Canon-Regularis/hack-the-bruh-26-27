@@ -3,15 +3,18 @@
 Every mask of #26's allowed candidates runs under each of #27's kept scenarios. Runs go
 in parallel worker processes and every result is checkpointed, so the search can resume.
 Stand-in for orchid's held network_design. Run from the repo root:
-``python -m src.decide.design_search``.
+``python -m src.decide.design_search``. To split the runs across machines that share the repo,
+start ``--shard K/N`` on each (K = 0..N-1), then ``--merge N`` once they have all finished.
 """
 
+import argparse
 import hashlib
 import json
 import math
 import multiprocessing
 import os
 import signal
+import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from itertools import accumulate
 from pathlib import Path
@@ -31,6 +34,7 @@ RESULTS_PATH = ROOT / "data" / "decide" / "design_search.json"
 
 ALPHA = 0.9
 MAX_ITERATIONS = 200
+TOLERANCE = 1e-4
 RETRY_ITERATION_FACTOR = 5
 MAX_CANDIDATES = 8
 WORKERS = max(1, (os.cpu_count() or 2) - 1)
@@ -85,9 +89,10 @@ def solve(context: dict, mask: int, scenario: dict
     net, links, crossings = apply_design(context["net"], context["link_to_edge"], context["crossings"],
                                          chosen(context["candidates"], mask), scenario["closed_edge_ids"])
     od = context["od"].scaled(scenario["multiplier"])
-    result = ta.user_equilibrium(net, od, method="b", max_iter=MAX_ITERATIONS)
+    result = ta.user_equilibrium(net, od, method="b", max_iter=MAX_ITERATIONS, tol=TOLERANCE)
     if not result.converged:
-        result = ta.user_equilibrium(net, od, method="b", max_iter=MAX_ITERATIONS * RETRY_ITERATION_FACTOR)
+        result = ta.user_equilibrium(net, od, method="b", max_iter=MAX_ITERATIONS * RETRY_ITERATION_FACTOR,
+                                     tol=TOLERANCE)
     return net, links, crossings, result
 
 
@@ -135,6 +140,7 @@ def fingerprint(context: dict) -> dict:
                            link.vdf.alpha, link.vdf.beta] for link in context["net"].links]),
         "crossings": _digest(context["crossings"]),
         "settings": {"max_iterations": MAX_ITERATIONS, "retry_iteration_factor": RETRY_ITERATION_FACTOR,
+                     "tolerance": TOLERANCE,
                      "walking_speed_mps": pcd.WALKING_SPEED_MPS, "cycle_s": pcd.CYCLE_S,
                      "walk_green_s": pcd.WALK_GREEN_S, "zebra_delay_s": pcd.ZEBRA_DELAY_S,
                      "max_wait_s": pcd.MAX_WAIT_S},
@@ -200,28 +206,65 @@ def _run(mask: int, scenario_index: int) -> dict:
     return evaluate(_worker_context, mask, _worker_context["scenarios"][scenario_index])
 
 
-def main() -> None:
-    """Run every unfinished (mask, scenario) in parallel, checkpointing each, then write the summary."""
+def shard_path(k: int, n: int) -> Path:
+    return CHECKPOINT_PATH.with_name(f"{CHECKPOINT_PATH.stem}.shard{k}of{n}.jsonl")
+
+
+def merge_shards(n: int, expected: dict, results: dict[tuple[int, str], dict]) -> None:
+    """Append every shard's runs that the main checkpoint lacks to it, and to results."""
+    new = {}
+    for k in range(n):
+        for key, record in load_checkpoint(shard_path(k, n), expected).items():
+            if key not in results:
+                new[key] = record
+    if new:
+        CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        if not CHECKPOINT_PATH.exists():
+            _write_atomic(CHECKPOINT_PATH, json.dumps({"fingerprint": expected}) + "\n")
+        with CHECKPOINT_PATH.open("a", encoding="utf-8") as checkpoint:
+            checkpoint.writelines(json.dumps(record) + "\n" for record in new.values())
+        results.update(new)
+
+
+def main(argv: list[str] = ()) -> None:
+    """Run every unfinished (mask, scenario) in parallel, checkpointing each, then write the summary.
+
+    A shard runs only its share, into its own checkpoint, and writes no summary.
+    """
+    parser = argparse.ArgumentParser(prog="python -m src.decide.design_search")
+    parser.add_argument("--shard", metavar="K/N", help="run only every Nth run, starting at K")
+    parser.add_argument("--merge", type=int, metavar="N", help="fold in the N shard checkpoints first")
+    args = parser.parse_args(list(argv))
     context = load_context()
     for cid, reason in context["abstained_keep_open"]:
         print(f"warning: keep-open clause {cid} abstained ({reason}), so it forbids nothing")
     expected = fingerprint(context)
     results = load_checkpoint(CHECKPOINT_PATH, expected)
+    if args.merge:
+        merge_shards(args.merge, expected, results)
     scenarios = context["scenarios"]
-    todo = [(mask, i) for mask in range(1 << len(context["candidates"])) for i, s in enumerate(scenarios)
-            if (mask, s["id"]) not in results]
+    every = [(mask, i) for mask in range(1 << len(context["candidates"])) for i in range(len(scenarios))]
+    checkpoint_path = CHECKPOINT_PATH
+    if args.shard:
+        k, n = map(int, args.shard.split("/"))
+        if not 0 <= k < n:
+            raise ValueError(f"--shard wants K/N with 0 <= K < N, got {args.shard}")
+        checkpoint_path = shard_path(k, n)
+        results.update(load_checkpoint(checkpoint_path, expected))
+        every = every[k::n]
+    todo = [(mask, i) for mask, i in every if (mask, scenarios[i]["id"]) not in results]
     print(f"{len(results)} runs already checkpointed, {len(todo)} to go")
 
     if todo:
-        CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        if not CHECKPOINT_PATH.exists():
-            _write_atomic(CHECKPOINT_PATH, json.dumps({"fingerprint": expected}) + "\n")
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        if not checkpoint_path.exists():
+            _write_atomic(checkpoint_path, json.dumps({"fingerprint": expected}) + "\n")
         step = max(1, len(todo) // 20)
         pool = ProcessPoolExecutor(min(WORKERS, len(todo)), mp_context=multiprocessing.get_context("spawn"),
                                    initializer=_start_worker, initargs=(context,))
         previous_handler = signal.signal(signal.SIGTERM, _stop)
         try:
-            with CHECKPOINT_PATH.open("a", encoding="utf-8") as checkpoint:
+            with checkpoint_path.open("a", encoding="utf-8") as checkpoint:
                 runs = {pool.submit(_run, mask, i): (mask, scenarios[i]["id"]) for mask, i in todo}
                 for done, future in enumerate(as_completed(runs), 1):
                     mask, scenario_id = runs[future]
@@ -235,6 +278,9 @@ def main() -> None:
             pool.shutdown(cancel_futures=True)
             signal.signal(signal.SIGTERM, previous_handler)
 
+    if args.shard:
+        print(f"shard {args.shard} finished -> {checkpoint_path}; run --merge {n} once every shard has")
+        return
     designs = summarise(context, results)
     RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     RESULTS_PATH.write_text(json.dumps({
@@ -250,4 +296,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])
