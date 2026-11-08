@@ -71,7 +71,7 @@ def main():
               f"baseline 2 {r['mae_baseline_2']:.2f} km/h; skill vs baseline 2 "
               f"{r['skill_vs_baseline_2']:.2f}")
     if results["leakage_check"]["leakage_suspected"]:
-        print("STOP: a model on shuffled targets beat baseline 1, so something is leaking.")
+        print("STOP: a model on shuffled targets beat the median guess, so something is leaking.")
         sys.exit(1)
 
 
