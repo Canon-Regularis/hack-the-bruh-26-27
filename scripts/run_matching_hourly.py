@@ -10,8 +10,10 @@ hour, e.g. speeds_2100.csv for 21:00-22:00 UTC.
 
 Usage (start once, inside tmux so it survives):
     python3 scripts/run_matching_hourly.py
+    python3 scripts/run_matching_hourly.py --start 2026-11-07T21:00:00+00:00
 """
 
+import argparse
 import json
 import sys
 import time
@@ -42,12 +44,19 @@ def out_path_for(hour_start):
     return OUT_DIR / f"speeds_{hour_start.strftime('%H%M')}.csv"
 
 
-def complete_hours(raw_path):
-    """Every [HH:00, HH+1:00) window that has fully elapsed already."""
-    df = load_valid(raw_path)
-    if df.empty:
-        return []
-    first_hour = floor_hour(df["vehicle_timestamp"].min())
+def complete_hours(raw_path, start=None):
+    """Every [HH:00, HH+1:00) window that has fully elapsed already.
+
+    start: pin the backfill's first hour explicitly (a pd.Timestamp), instead
+    of starting from the earliest hour the collected data happens to cover.
+    """
+    if start is not None:
+        first_hour = floor_hour(start)
+    else:
+        df = load_valid(raw_path)
+        if df.empty:
+            return []
+        first_hour = floor_hour(df["vehicle_timestamp"].min())
     current_hour = floor_hour(pd.Timestamp.now(tz="UTC"))
     hours, h = [], first_hour
     while h < current_hour:
@@ -68,12 +77,18 @@ def run_hour(hour_start, graph, idx, stops, street_names):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--start", type=str, default=None,
+                         help="pin the backfill's first hour, ISO UTC, e.g. 2026-11-07T21:00:00+00:00")
+    args = parser.parse_args()
+    start = pd.Timestamp(args.start) if args.start else None
+
     graph = load_graph()
     idx = sn.EdgeIndex(graph, mode="bus")
     stops = json.load(open(GRAPH_DIR / "bus_stops.json"))
     street_names = json.load(open(GRAPH_DIR / "street_names.json"))
 
-    backfill = complete_hours(DEFAULT_RAW)
+    backfill = complete_hours(DEFAULT_RAW, start=start)
     print(f"backfilling {len(backfill)} complete hour(s)")
     for hour_start in backfill:
         run_hour(hour_start, graph, idx, stops, street_names)
