@@ -9,32 +9,44 @@ import {
   type PaddingOptions,
 } from 'maplibre-gl';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
-import type { Feature, FeatureCollection, LineString, Polygon } from 'geojson';
-import { slowestAt, type BBox, type Data, type LayerId, type Speeds } from './data';
+import type { Feature, FeatureCollection, LineString, Point, Polygon } from 'geojson';
+import { slowestAt, type BBox, type CitySpeeds, type Data, type LayerId, type Segment, type Speeds } from './data';
 import { basemapStyle } from './basemap';
 
 setWorkerUrl(workerUrl);
 
-export const SERIES = { traffic: '#2a78d6', crossings: '#4b463f', counts: '#1baf7a' } as const;
+export const SERIES = { traffic: '#2a78d6', crossings: '#a62a8c', counts: '#1baf7a' } as const;
 export const SPEED_RAMP: [number, string][] = [
   [0, '#5c1d06'], [6, '#9b3510'], [12, '#d9541f'], [20, '#f08a5b'], [32, '#f6b796'],
 ];
 export const TRAFFIC_RAMP: [number, string][] = [
   [0, '#b7d3f6'], [0.4, '#6da7ec'], [0.7, '#2a78d6'], [0.9, '#1c5cab'], [1.1, '#0d366b'],
 ];
-export const RULE = { agrees: '#6250d6', disagrees: '#d03b3b', held: '#8d877d' } as const;
-export const CONCERN_RAMP: [number, string][] = [[0, '#f3c5d7'], [1, '#d55181'], [5, '#a8325f'], [20, '#6e1d3d']];
+export const RULE = { agrees: '#6250d6', disagrees: '#d03b3b', held: '#1f9e89' } as const;
+export const CONCERN_RAMP: [number, string][] = [[0, '#fdd5bf'], [1, '#e8602c'], [5, '#c2410c'], [20, '#7c2d12']];
 const INK = '#1f1d1a';
 const HIGHLIGHT = '#ffc629';
 const HIGHLIGHT_SOFT = '#ffe7a3';
 const EDINBURGH: BBox = [-3.45, 55.83, -2.95, 56.02];
 const NOTHING: FilterSpecification = ['==', ['get', 'name'], '\u0000'];
+const NO_NODE: FilterSpecification = ['==', ['get', 'node'], '\u0000'];
 const ROUND = { 'line-cap': 'round', 'line-join': 'round' } as const;
 const DASHED = { 'line-cap': 'butt', 'line-join': 'round' } as const;
 
+export const DESIGN = { close: '#d03b3b', reallocate: '#0e8a83', signalise_crossing: '#1f1d1a' } as const;
+
+/** What the map highlights for a design: closed and bus-lane streets by name, new signals by crossing node. */
+export interface DesignView {
+  closed: string[];
+  buses: string[];
+  signals: string[];
+}
+
 const GROUPS: Partial<Record<LayerId, string[]>> = {
-  rules: ['rules-held', 'rules-case', 'rules', 'rules-wrong-case', 'rules-wrong'],
-  concerns: ['concerns-case', 'concerns'],
+  designs: ['design-bus-case', 'design-bus', 'design-closed-case', 'design-closed', 'design-signal', 'design-pins', 'design-label'],
+  rules: ['rules-held', 'rules-glow', 'rules-wrong-glow', 'rules-case', 'rules', 'rules-wrong-case',
+    'rules-wrong', 'rules-pins', 'rules-label'],
+  concerns: ['concerns-glow', 'concerns-case', 'concerns', 'concerns-pins', 'concerns-label'],
   speeds: ['city-speeds-case', 'city-speeds', 'speeds-case', 'speeds', 'speeds-predicted'],
   traffic: ['city-traffic-case', 'city-traffic', 'traffic-case', 'traffic'],
   crossings: ['crossings'],
@@ -52,10 +64,14 @@ export interface MapApi {
 
 interface Props {
   data: Data;
+  speeds: Speeds | null;
+  city: CitySpeeds | null;
   visible: Record<LayerId, boolean>;
   selected: string | null;
+  design?: DesignView | null;
   bin: number;
   onSelect(name: string | null): void;
+  onChange?(id: string): void;
   onError(message: string): void;
   apiRef: RefObject<MapApi | null>;
 }
@@ -75,6 +91,72 @@ function speedFeatures(segments: SegmentFeature[], speeds: Speeds | null, bin: n
         properties: { name: f.properties.name, spd: reading.speed, obs: reading.observed } }] : [];
     }),
   };
+}
+
+/** The study area plus a margin of `share` of its size on every side, so the opening view shows some city around it. */
+export function widen([w, s, e, n]: BBox, share = 0.2): BBox {
+  const dx = (e - w) * share, dy = (n - s) * share;
+  return [w - dx, s - dy, e + dx, n + dy];
+}
+
+type Pins = FeatureCollection<Point, { name: string; ok: boolean }>;
+
+/** One point per ruled street, at the middle of its longest ruled segment; ok is false if OSM disagrees anywhere on it. */
+export const rulePins = (segments: Feature<LineString, Segment>[]): Pins =>
+  streetPins(segments, (s) => Boolean(s.rule), (s) => s.osm_ok !== false);
+
+/** One point per street named in consultation material, at the middle of its longest named segment. */
+export const concernPins = (segments: Feature<LineString, Segment>[]): Pins =>
+  streetPins(segments, (s) => s.concern != null, () => true);
+
+function streetPins(segments: Feature<LineString, Segment>[], keep: (s: Segment) => boolean, isOk: (s: Segment) => boolean): Pins {
+  const streets = new Map<string, { longest: Feature<LineString, Segment>; ok: boolean }>();
+  for (const f of segments) {
+    const { name, len } = f.properties;
+    if (!keep(f.properties) || !name) continue;
+    const seen = streets.get(name);
+    const ok = isOk(f.properties);
+    if (!seen) streets.set(name, { longest: f, ok });
+    else streets.set(name, { longest: len > seen.longest.properties.len ? f : seen.longest, ok: seen.ok && ok });
+  }
+  return {
+    type: 'FeatureCollection',
+    features: [...streets].map(([name, { longest, ok }]) => {
+      const coords = longest.geometry.coordinates;
+      return { type: 'Feature', geometry: { type: 'Point', coordinates: coords[Math.floor(coords.length / 2)] }, properties: { name, ok } };
+    }),
+  };
+}
+
+type ChangePins = FeatureCollection<Point, { id: string; kind: string; label: string }>;
+
+const PIN_LABEL = { close: 'closed', reallocate: 'bus lane', signalise_crossing: 'new signals' } as const;
+
+/** A clickable pin for every change on the design menu, on its street's longest car segment or its crossing,
+ * and the box around the pins and the streets they change. */
+export function changePins(data: Data): { pins: ChangePins; bbox: BBox | null } {
+  const features: ChangePins['features'] = [];
+  const points: number[][] = [];
+  for (const c of data.designs?.candidates ?? []) {
+    let at: number[] | undefined;
+    if (c.kind === 'signalise_crossing') {
+      at = data.crossings?.features.find((f) => String(f.properties.node) === c.node)?.geometry.coordinates;
+    } else {
+      const car = data.network.features.filter((f) => f.properties.name === c.street && f.properties.car);
+      const longest = car.reduce<typeof car[number] | null>((a, f) => (!a || f.properties.len > a.properties.len ? f : a), null);
+      at = longest?.geometry.coordinates[Math.floor(longest.geometry.coordinates.length / 2)];
+      const box = c.street ? data.streets[c.street]?.bbox : undefined;
+      if (box) points.push([box[0], box[1]], [box[2], box[3]]);
+    }
+    if (!at) continue;
+    points.push(at);
+    features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: at },
+      properties: { id: c.id, kind: c.kind, label: `${c.street ?? 'Crossing'} · ${PIN_LABEL[c.kind]}` } });
+  }
+  const pins: ChangePins = { type: 'FeatureCollection', features };
+  if (!points.length) return { pins, bbox: null };
+  const xs = points.map((p) => p[0]), ys = points.map((p) => p[1]);
+  return { pins, bbox: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] };
 }
 
 function padding(): PaddingOptions {
@@ -111,10 +193,8 @@ function addLayers(map: MLMap, data: Data, online: boolean) {
   }
   map.addLayer({ id: 'study-mask', type: 'fill', source: 'study',
     paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.45 } }, labels);
-  map.addLayer({ id: 'study-casing', type: 'line', source: 'study',
-    paint: { 'line-color': '#ffffff', 'line-width': 6, 'line-opacity': 0.9 } }, labels);
   map.addLayer({ id: 'study-outline', type: 'line', source: 'study',
-    paint: { 'line-color': INK, 'line-width': 2.2, 'line-dasharray': [3, 2] } }, labels);
+    paint: { 'line-color': INK, 'line-width': 1.5, 'line-opacity': 0.6, 'line-dasharray': [4, 2.5] } }, labels);
 
   map.addLayer({ id: 'hover', type: 'line', source: 'network', filter: NOTHING, layout: ROUND,
     paint: { 'line-color': HIGHLIGHT_SOFT, 'line-blur': 2, 'line-width': byZoom(10, 24) } }, labels);
@@ -157,25 +237,68 @@ function addLayers(map: MLMap, data: Data, online: boolean) {
       paint: { 'line-color': colour, 'line-width': byZoom(2.5, 7), 'line-dasharray': [1.2, 0.9] } }, labels);
   }
 
+  const glow = (colour: string | ExpressionSpecification, opacity = 0.3) => ({
+    'line-color': colour, 'line-opacity': opacity, 'line-width': byZoom(16, 34), 'line-blur': byZoom(5, 10),
+  });
+  const concernColour = ['interpolate', ['linear'], ['get', 'concern'], ...CONCERN_RAMP.flat()] as ExpressionSpecification;
+  map.addLayer({ id: 'concerns-glow', type: 'line', source: 'network', filter: ['has', 'concern'], layout: ROUND,
+    paint: glow(concernColour, 0.38) }, labels);
   map.addLayer({ id: 'concerns-case', type: 'line', source: 'network', filter: ['has', 'concern'], layout: ROUND,
-    paint: { 'line-color': '#ffffff', 'line-width': byZoom(7, 16) } }, labels);
+    paint: { 'line-color': '#ffffff', 'line-width': byZoom(9, 17) } }, labels);
   map.addLayer({ id: 'concerns', type: 'line', source: 'network', filter: ['has', 'concern'], layout: ROUND,
     paint: {
-      'line-color': ['interpolate', ['linear'], ['get', 'concern'], ...CONCERN_RAMP.flat()] as ExpressionSpecification,
-      'line-width': byZoom(4, 11),
+      'line-color': concernColour,
+      'line-width': byZoom(5.5, 12),
     } }, labels);
+  map.addSource('concern-pins', { type: 'geojson', data: concernPins(data.network.features) });
+  map.addLayer({ id: 'concerns-pins', type: 'circle', source: 'concern-pins', paint: {
+    'circle-color': CONCERN_RAMP[2][1], 'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 5, 16, 8],
+    'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2.5,
+  } });
 
   map.addLayer({ id: 'rules-held', type: 'line', source: 'network', filter: ['==', ['get', 'held'], true], layout: ROUND,
     paint: { 'line-color': RULE.held, 'line-width': byZoom(3, 7), 'line-dasharray': [0, 2] } }, labels);
   const ruled = (agrees: boolean): FilterSpecification => ['all', ['has', 'rule'], ['==', ['get', 'osm_ok'], agrees]];
+  map.addLayer({ id: 'rules-glow', type: 'line', source: 'network', filter: ruled(true), layout: ROUND,
+    paint: glow(RULE.agrees, 0.4) }, labels);
+  map.addLayer({ id: 'rules-wrong-glow', type: 'line', source: 'network', filter: ruled(false), layout: ROUND,
+    paint: glow(RULE.disagrees, 0.4) }, labels);
   map.addLayer({ id: 'rules-case', type: 'line', source: 'network', filter: ruled(true), layout: ROUND,
-    paint: { 'line-color': '#ffffff', 'line-width': byZoom(8, 16) } }, labels);
+    paint: { 'line-color': '#ffffff', 'line-width': byZoom(11, 19) } }, labels);
   map.addLayer({ id: 'rules', type: 'line', source: 'network', filter: ruled(true), layout: ROUND,
-    paint: { 'line-color': RULE.agrees, 'line-width': byZoom(4.5, 11) } }, labels);
+    paint: { 'line-color': RULE.agrees, 'line-width': byZoom(7, 14) } }, labels);
   map.addLayer({ id: 'rules-wrong-case', type: 'line', source: 'network', filter: ruled(false), layout: ROUND,
-    paint: { 'line-color': '#ffffff', 'line-width': byZoom(8, 16) } }, labels);
+    paint: { 'line-color': '#ffffff', 'line-width': byZoom(11, 19) } }, labels);
   map.addLayer({ id: 'rules-wrong', type: 'line', source: 'network', filter: ruled(false), layout: DASHED,
-    paint: { 'line-color': RULE.disagrees, 'line-width': byZoom(4.5, 11), 'line-dasharray': [1.4, 0.7] } }, labels);
+    paint: { 'line-color': RULE.disagrees, 'line-width': byZoom(7, 14), 'line-dasharray': [1.4, 0.7] } }, labels);
+  const pinColour: ExpressionSpecification = ['case', ['get', 'ok'], RULE.agrees, RULE.disagrees];
+  map.addSource('rule-pins', { type: 'geojson', data: rulePins(data.network.features) });
+  map.addLayer({ id: 'rules-pins', type: 'circle', source: 'rule-pins', paint: {
+    'circle-color': pinColour, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 5, 16, 8],
+    'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2.5,
+  } });
+  if (online) {
+    map.addLayer({ id: 'rules-label', type: 'symbol', source: 'rule-pins',
+      layout: {
+        'text-field': ['get', 'name'], 'text-font': ['Noto Sans Bold'], 'text-size': 11.5, 'text-anchor': 'left',
+        'text-offset': [0.9, 0], 'text-optional': true,
+      },
+      paint: { 'text-color': ['case', ['get', 'ok'], '#3b2f8f', '#9b2424'], 'text-halo-color': '#ffffff', 'text-halo-width': 1.8 } });
+    map.addLayer({ id: 'concerns-label', type: 'symbol', source: 'concern-pins',
+      layout: {
+        'text-field': ['get', 'name'], 'text-font': ['Noto Sans Bold'], 'text-size': 11.5, 'text-anchor': 'left',
+        'text-offset': [0.9, 0], 'text-optional': true,
+      },
+      paint: { 'text-color': '#9a3412', 'text-halo-color': '#ffffff', 'text-halo-width': 1.8 } });
+  }
+
+  for (const [id, colour, layout, dash] of [['design-bus', DESIGN.reallocate, ROUND, null],
+                                            ['design-closed', DESIGN.close, DASHED, [1.2, 0.8]]] as const) {
+    map.addLayer({ id: `${id}-case`, type: 'line', source: 'network', filter: NOTHING, layout: ROUND,
+      paint: { 'line-color': '#ffffff', 'line-width': byZoom(8, 17) } }, labels);
+    map.addLayer({ id, type: 'line', source: 'network', filter: NOTHING, layout,
+      paint: { 'line-color': colour, 'line-width': byZoom(4.5, 11), ...(dash ? { 'line-dasharray': [...dash] } : {}) } }, labels);
+  }
 
   map.addLayer({ id: 'network-hit', type: 'line', source: 'network', filter: ['!=', ['get', 'name'], ''],
     paint: { 'line-color': '#000000', 'line-opacity': 0, 'line-width': 16 } });
@@ -187,6 +310,10 @@ function addLayers(map: MLMap, data: Data, online: boolean) {
     map.addLayer({ id: 'crossings', type: 'circle', source: 'crossings', paint: {
       'circle-color': SERIES.crossings, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.5,
       'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, size(1.5, 4), 17, size(4, 11)],
+    } });
+    map.addLayer({ id: 'design-signal', type: 'circle', source: 'crossings', filter: NO_NODE, paint: {
+      'circle-color': DESIGN.signalise_crossing, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 3,
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 6, 17, 12],
     } });
   }
   if (data.counts) {
@@ -203,15 +330,32 @@ function addLayers(map: MLMap, data: Data, online: boolean) {
         paint: { 'text-color': INK, 'text-halo-color': '#ffffff', 'text-halo-width': 1.6 } });
     }
   }
+  if (data.designs) {
+    map.addSource('design-pins', { type: 'geojson', data: changePins(data).pins });
+    map.addLayer({ id: 'design-pins', type: 'circle', source: 'design-pins', paint: {
+      'circle-color': ['match', ['get', 'kind'], 'close', DESIGN.close, 'reallocate', DESIGN.reallocate, DESIGN.signalise_crossing],
+      'circle-stroke-color': '#ffffff', 'circle-stroke-width': 3,
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 8, 16, 12],
+    } });
+    if (online) {
+      map.addLayer({ id: 'design-label', type: 'symbol', source: 'design-pins', layout: {
+        'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': 12.5, 'text-offset': [0, 1.3],
+        'text-anchor': 'top', 'text-max-width': 12,
+      }, paint: { 'text-color': INK, 'text-halo-color': '#ffffff', 'text-halo-width': 2 } });
+    }
+  }
 }
 
-export default function MapView({ data, visible, selected, bin, onSelect, onError, apiRef }: Props) {
+export default function MapView({ data, speeds, city, visible, selected, design, bin, onSelect, onChange, onError, apiRef }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MLMap | null>(null);
   const onSelectRef = useRef(onSelect);
+  const onChangeRef = useRef(onChange);
   const onErrorRef = useRef(onError);
+  const shownDesign = useRef<DesignView | null>(null);
   const [ready, setReady] = useState(false);
   onSelectRef.current = onSelect;
+  onChangeRef.current = onChange;
   onErrorRef.current = onError;
 
   useEffect(() => {
@@ -224,7 +368,7 @@ export default function MapView({ data, visible, selected, bin, onSelect, onErro
       let m: MLMap;
       try {
         m = new MLMap({
-          container: container.current, style, bounds: data.meta.bbox as LngLatBoundsLike,
+          container: container.current, style, bounds: widen(data.meta.bbox) as LngLatBoundsLike,
           fitBoundsOptions: { padding: padding() }, maxBounds: EDINBURGH as LngLatBoundsLike,
           attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false, touchPitch: false,
         });
@@ -257,14 +401,21 @@ export default function MapView({ data, visible, selected, bin, onSelect, onErro
           m.setFilter('hover', NOTHING);
           hovered = '';
         });
+        m.on('mouseenter', 'design-pins', () => { m.getCanvas().style.cursor = 'pointer'; });
+        m.on('mouseleave', 'design-pins', () => { m.getCanvas().style.cursor = ''; });
         m.on('click', (e) => {
+          const pin = m.getLayer('design-pins') ? m.queryRenderedFeatures(e.point, { layers: ['design-pins'] })[0] : undefined;
+          if (pin) {
+            onChangeRef.current?.(String(pin.properties.id));
+            return;
+          }
           const hit = m.queryRenderedFeatures(e.point, { layers: ['network-hit'] })[0];
           onSelectRef.current(hit ? String(hit.properties.name) : null);
         });
         const fit = (bbox: BBox) => m.fitBounds(bbox as LngLatBoundsLike, { padding: padding(), maxZoom: 17.5, duration: 900 });
         apiRef.current = {
           showStreet: (name) => data.streets[name] && fit(data.streets[name].bbox),
-          reset: () => fit(data.meta.bbox),
+          reset: () => fit(widen(data.meta.bbox)),
           zoomIn: () => m.zoomIn(),
           zoomOut: () => m.zoomOut(),
         };
@@ -298,11 +449,29 @@ export default function MapView({ data, visible, selected, bin, onSelect, onErro
   }, [ready, selected]);
 
   useEffect(() => {
+    const m = mapRef.current;
+    if (!ready || !m) return;
+    const streets = (names: string[] = []): FilterSpecification =>
+      names.length ? ['all', ['==', ['get', 'car'], true], ['in', ['get', 'name'], ['literal', names]]] : NOTHING;
+    for (const [ids, names] of [[['design-bus-case', 'design-bus'], design?.buses],
+                                [['design-closed-case', 'design-closed'], design?.closed]] as const) {
+      for (const id of ids) if (m.getLayer(id)) m.setFilter(id, streets(names ? [...names] : []));
+    }
+    if (m.getLayer('design-signal')) {
+      m.setFilter('design-signal', design?.signals.length ? ['in', ['get', 'node'], ['literal', design.signals]] : NO_NODE);
+    }
+    const entering = Boolean(design) && !shownDesign.current;
+    shownDesign.current = design ?? null;
+    const bbox = entering ? changePins(data).bbox : null;
+    if (bbox) m.fitBounds(bbox as LngLatBoundsLike, { padding: padding(), maxZoom: 15, duration: 900 });
+  }, [ready, data, design]);
+
+  useEffect(() => {
     if (!ready) return;
-    mapRef.current?.getSource<GeoJSONSource>('speeds')?.setData(speedFeatures(data.network.features, data.speeds, bin));
+    mapRef.current?.getSource<GeoJSONSource>('speeds')?.setData(speedFeatures(data.network.features, speeds, bin));
     mapRef.current?.getSource<GeoJSONSource>('city-speeds')
-      ?.setData(speedFeatures(data.city?.network.features ?? [], data.city?.speeds ?? null, bin));
-  }, [ready, data, bin]);
+      ?.setData(speedFeatures(city?.network.features ?? [], city?.speeds ?? null, bin));
+  }, [ready, data, speeds, city, bin]);
 
   return <div ref={container} className="map" />;
 }

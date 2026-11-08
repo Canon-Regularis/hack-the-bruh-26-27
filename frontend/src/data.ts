@@ -24,6 +24,8 @@ export interface LayerMeta {
   interval_target?: number;
   interval_coverage?: number;
   city_edges?: number;
+  periods?: Partial<LayerMeta>[];
+  status?: 'searching' | 'done';
 }
 
 export interface Meta {
@@ -117,6 +119,71 @@ export interface CitySpeeds {
   speeds: Speeds;
 }
 
+/** One stretch of bus observations the site can switch to: its own meta, prediction table and city speeds. */
+export interface SpeedPeriod {
+  meta: LayerMeta;
+  speeds: Speeds;
+  city: CitySpeeds | null;
+}
+
+export type DesignKind = 'close' | 'reallocate' | 'signalise_crossing';
+
+/** One change on #26's menu, with why the data picked it. */
+export interface DesignCandidate {
+  id: string;
+  kind: DesignKind;
+  street?: string;
+  node?: string;
+  capacity_factor?: number;
+  reason: string;
+  evidence: Record<string, unknown>;
+}
+
+export interface DesignScores {
+  mean_j_car: number;
+  mean_j_ped: number;
+  j_risk: number;
+  j_voice?: number;
+  j_voice_improvement?: number;
+}
+
+export interface Design extends Partial<DesignScores> {
+  mask: number;
+  candidates: string[];
+  feasible: boolean;
+  reason?: string;
+}
+
+export interface PolicyRow {
+  clause_id: string;
+  restriction: string;
+  street: string;
+  quote: string;
+  page: number;
+  document_id: string;
+  status: 'satisfied' | 'in_tension' | 'abstained';
+  detail: string;
+}
+
+export interface DesignPick extends DesignScores {
+  mask: number;
+  candidates: string[];
+  policy?: { summary: string; clauses: PolicyRow[] };
+  emissions?: { total_g_h: Record<string, number>; change_pct?: Record<string, number | null> };
+}
+
+/** The design search: the menu while it runs, then every design's scores, the best trade-offs and the picks. */
+export interface Designs {
+  status: 'searching' | 'done';
+  candidates: DesignCandidate[];
+  hour?: string;
+  scenarios?: { id: string; probability: number }[];
+  designs?: Design[];
+  trade_offs?: number[];
+  picks?: Record<string, DesignPick>;
+  tail_risk?: { sentence: string; x_pct: number; y_pct: number; same_design: boolean; scenario_count: number };
+}
+
 export interface Data {
   meta: Meta;
   network: FeatureCollection<LineString, Segment>;
@@ -128,6 +195,8 @@ export interface Data {
   speeds: Speeds | null;
   city: CitySpeeds | null;
   cityTraffic: FeatureCollection<LineString, { id: string; name: string; flow: number; vc: number }> | null;
+  periods: SpeedPeriod[];
+  designs: Designs | null;
   warnings: string[];
 }
 
@@ -149,6 +218,7 @@ const isCollection: Check = (v) => isObject(v) && Array.isArray(v.features);
 const isMeta: Check = (v) => isObject(v) && Array.isArray(v.bbox) && v.bbox.length === 4 && isObject(v.layers);
 const isRules: Check = (v) => isObject(v) && Array.isArray(v.clauses);
 const isSpeeds: Check = (v) => isObject(v) && Array.isArray(v.bins) && isObject(v.edges);
+const isDesigns: Check = (v) => isObject(v) && Array.isArray(v.candidates);
 
 async function get<T>(name: string, check: Check): Promise<T> {
   let res: Response;
@@ -174,6 +244,7 @@ const OPTIONAL: { layer: LayerId; file: string; check: Check; pick: (v: never) =
   { layer: 'rules', file: 'rules.json', check: isRules, pick: (v: { clauses: Clause[] }) => v.clauses },
   { layer: 'concerns', file: 'concerns.json', check: isObject, pick: (v) => v },
   { layer: 'speeds', file: 'speeds.json', check: isSpeeds, pick: (v) => v },
+  { layer: 'designs', file: 'designs.json', check: isDesigns, pick: (v) => v },
 ];
 
 /** Load the exported files. The map, network and street list are required and throw DataError;
@@ -194,8 +265,8 @@ export async function loadData(): Promise<Data> {
     delete meta.layers[layer];
     return null;
   });
-  const [crossings, counts, rules, concerns, speeds] =
-    loaded as [Data['crossings'], Data['counts'], Data['rules'], Data['concerns'], Data['speeds']];
+  const [crossings, counts, rules, concerns, speeds, designs] = loaded as
+    [Data['crossings'], Data['counts'], Data['rules'], Data['concerns'], Data['speeds'], Data['designs']];
   let city: CitySpeeds | null = null;
   if (speeds && meta.layers.speeds?.city_edges) {
     try {
@@ -216,7 +287,31 @@ export async function loadData(): Promise<Data> {
       warnings.push(`City-wide car traffic left out: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  return { meta, network, streets, crossings, counts, rules, concerns, speeds, city, cityTraffic, warnings };
+  const periods: SpeedPeriod[] = [];
+  const speedMeta = meta.layers.speeds;
+  if (speeds && speedMeta) {
+    periods.push({ meta: speedMeta, speeds, city });
+    for (const [i, extra] of (speedMeta.periods ?? []).entries()) {
+      if (i === 0) continue;
+      try {
+        const [periodSpeeds, periodCity] = await Promise.all([
+          get<Speeds>(`speeds_${i}.json`, isSpeeds),
+          extra.city_edges ? Promise.all([
+            get<CitySpeeds['network']>(`city_network_${i}.geojson`, isCollection),
+            get<Speeds>(`city_speeds_${i}.json`, isSpeeds),
+          ]) : null,
+        ]);
+        periods.push({
+          meta: { label: speedMeta.label, basis: speedMeta.basis, note: speedMeta.note, ...extra },
+          speeds: periodSpeeds,
+          city: periodCity && { network: periodCity[0], speeds: periodCity[1] },
+        });
+      } catch (e) {
+        warnings.push(`Bus speeds for another period left out: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+  return { meta, network, streets, crossings, counts, rules, concerns, speeds, city, cityTraffic, periods, designs, warnings };
 }
 
 /** The slowest reading in a bin among the given directed edges, or null if none of them has one. */
@@ -308,4 +403,13 @@ export function concernStreets(streets: Map<string, StreetInfo>): ConcernStreet[
       themes: [...new Set(concerns.map((c) => c.theme))],
     }))
     .sort((a, b) => b.mentions - a.mentions || a.name.localeCompare(b.name));
+}
+
+/** A design's scores as % change against doing nothing (mask 0), or null without a feasible do-nothing run. */
+export function versusToday(designs: Designs, scores: Partial<DesignScores>) {
+  const today = designs.designs?.find((d) => d.mask === 0 && d.feasible);
+  if (!today) return null;
+  const change = (key: 'mean_j_car' | 'mean_j_ped' | 'j_risk') =>
+    scores[key] != null && today[key] ? (scores[key]! / today[key]! - 1) * 100 : null;
+  return { car: change('mean_j_car'), ped: change('mean_j_ped'), risk: change('j_risk') };
 }

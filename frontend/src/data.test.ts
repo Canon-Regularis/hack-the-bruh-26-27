@@ -1,7 +1,10 @@
+import { badDaySentence, fmtChange, fmtSigned, whatItDoes } from './Designs';
+import { fmtDay, fmtPeriod } from './ui';
+import { changePins, concernPins, rulePins, widen } from './MapView';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  DataError, busiestBin, concernStreets, indexStreets, loadData, ruledStreets, slowestAt, streetSpeeds,
-  type Clause, type Segment, type Speeds,
+  DataError, busiestBin, concernStreets, indexStreets, loadData, ruledStreets, slowestAt, streetSpeeds, versusToday,
+  type Clause, type Designs, type Segment, type Speeds,
 } from './data';
 
 const segment = (id: string, rev: string | null, name: string) => ({
@@ -253,5 +256,188 @@ describe('concernStreets', () => {
       { name: 'Lawnmarket', mentions: 4, themes: ['noise', 'parking'] },
       { name: 'Castlehill', mentions: 1, themes: ['rat_running'] },
     ]);
+  });
+});
+
+describe('fmtDay', () => {
+  it('names the weekday and date in Edinburgh time', () => {
+    expect(fmtDay('2026-11-06T08:00:00+00:00')).toBe('Friday 6 November');
+    expect(fmtDay('2026-11-07T23:30:00-01:00')).toBe('Sunday 8 November');
+  });
+});
+
+describe('speed periods', () => {
+  const table = (bins: string[]) => ({ bins, edges: { '0': { s: bins.map(() => 10), o: bins.map(() => '1').join('') } } });
+  const day = ['2026-11-06T08:00:00+00:00', '2026-11-06T08:15:00+00:00'];
+  const night = ['2026-11-07T19:30:00+00:00'];
+
+  function withPeriods(extra: Record<string, Reply> = {}) {
+    const all = files();
+    const speeds = { ...layer('Bus-observed speed'), window: [day[0], day[1]], mae_kmh: 7 };
+    (all['meta.json'] as { layers: Record<string, unknown> }).layers.speeds = {
+      ...speeds, periods: [{ window: speeds.window, mae_kmh: 7 }, { window: [night[0], night[0]], mae_kmh: 8, city_edges: 1 }],
+    };
+    serve({
+      ...all, 'speeds.json': table(day), 'speeds_1.json': table(night),
+      'city_network_1.geojson': { type: 'FeatureCollection', features: [] }, 'city_speeds_1.json': table(night), ...extra,
+    });
+  }
+
+  it('loads each period after the default, with its own meta and city speeds', async () => {
+    withPeriods();
+    const data = await loadData();
+    expect(data.periods.map((p) => p.speeds.bins)).toEqual([day, night]);
+    expect(data.periods[1].meta).toMatchObject({ label: 'Bus-observed speed', mae_kmh: 8, window: [night[0], night[0]] });
+    expect(data.periods[1].meta.periods).toBeUndefined();
+    expect([data.periods[0].city, data.periods[1].city?.speeds.bins]).toEqual([null, night]);
+    expect(data.warnings).toEqual([]);
+  });
+
+  it('keeps the default period when another fails to load', async () => {
+    withPeriods({ 'speeds_1.json': { status: 404 } });
+    const data = await loadData();
+    expect(data.periods).toHaveLength(1);
+    expect(data.warnings).toEqual(['Bus speeds for another period left out: speeds_1.json: HTTP 404']);
+  });
+});
+
+describe('fmtPeriod', () => {
+  it('labels a window by weekday and Edinburgh time, ending 15 minutes after the last bin', () => {
+    expect(fmtPeriod(['2026-11-06T08:00:00+00:00', '2026-11-06T08:45:00+00:00'])).toBe('Fri 08:00–09:00');
+  });
+});
+
+describe('widen', () => {
+  it('adds a fifth of the box on every side', () => {
+    expect(widen([0, 10, 10, 20])).toEqual([-2, 8, 12, 22]);
+  });
+});
+
+const MENU = [{ id: 'close-a', kind: 'close', street: 'A Street', reason: 'complaint street', evidence: {} }];
+
+function withDesigns(designs: unknown): Record<string, Reply> {
+  const all = files();
+  (all['meta.json'] as { layers: Record<string, unknown> }).layers.designs = { ...layer('Design options'), status: 'searching' };
+  return { ...all, 'designs.json': designs };
+}
+
+describe('designs', () => {
+  it('loads the menu while the search runs', async () => {
+    serve(withDesigns({ status: 'searching', candidates: MENU }));
+    const data = await loadData();
+    expect(data.designs).toEqual({ status: 'searching', candidates: MENU });
+    expect(data.warnings).toEqual([]);
+  });
+
+  it('drops a designs file in the wrong shape and says why', async () => {
+    serve(withDesigns({ status: 'searching', menu: MENU }));
+    const data = await loadData();
+    expect(data.designs).toBeNull();
+    expect(data.meta.layers.designs).toBeUndefined();
+    expect(data.warnings).toEqual(['Design options left out: designs.json: not in the expected format']);
+  });
+
+  it('gives a design\'s scores as % change against doing nothing', () => {
+    const designs: Designs = {
+      status: 'done', candidates: [],
+      designs: [{ mask: 0, candidates: [], feasible: true, mean_j_car: 200, mean_j_ped: 50, j_risk: 400 }],
+    };
+    const change = versusToday(designs, { mean_j_car: 210, mean_j_ped: 40, j_risk: 400 })!;
+    expect(change.car).toBeCloseTo(5);
+    expect(change.ped).toBeCloseTo(-20);
+    expect(change.risk).toBeCloseTo(0);
+    expect(versusToday({ ...designs, designs: [{ mask: 0, candidates: [], feasible: false }] }, { mean_j_car: 1 })).toBeNull();
+  });
+});
+
+describe('rulePins', () => {
+  const seg = (name: string, len: number, props: Partial<Segment>, coords: number[][]) => ({
+    type: 'Feature' as const, geometry: { type: 'LineString' as const, coordinates: coords },
+    properties: { ...segment('0', null, name).properties, len, ...props },
+  });
+
+  it('puts one pin per ruled street at the middle of its longest segment, red if OSM disagrees anywhere', () => {
+    const pins = rulePins([
+      seg('Lawnmarket', 10, { rule: 'no_motor_vehicles', osm_ok: true }, [[0, 0], [1, 1]]),
+      seg('Lawnmarket', 30, { rule: 'no_motor_vehicles', osm_ok: false }, [[5, 5], [6, 6], [7, 7]]),
+      seg('Castlehill', 20, { rule: 'one_way', osm_ok: true }, [[2, 2], [3, 3]]),
+      seg('Bank Street', 50, {}, [[9, 9], [9, 8]]),
+    ]);
+    expect(pins.features.map((f) => [f.properties.name, f.properties.ok, f.geometry.coordinates])).toEqual([
+      ['Lawnmarket', false, [6, 6]], ['Castlehill', true, [3, 3]],
+    ]);
+  });
+});
+
+describe('concernPins', () => {
+  it('puts one pin per street named in consultation material', () => {
+    const named = (name: string, concern?: number) => ({
+      type: 'Feature' as const, geometry: { type: 'LineString' as const, coordinates: [[0, 0], [1, 1]] },
+      properties: { ...segment('0', null, name).properties, ...(concern != null && { concern }) },
+    });
+    expect(concernPins([named('Cowgate', 1), named('Cowgate', 1), named('Bank Street')]).features.map((f) => f.properties))
+      .toEqual([{ name: 'Cowgate', ok: true }]);
+  });
+});
+
+describe('design wording', () => {
+  it('shows small changes to two decimals and a change that rounds to nothing without a sign', () => {
+    expect([fmtChange(-0.309), fmtChange(0.061), fmtChange(-0.0004), fmtChange(12.34), fmtChange(null)])
+      .toEqual(['−0.31%', '+0.06%', '0.00%', '+12.3%', '–']);
+  });
+
+  it('says the bad-day result in plain words', () => {
+    const tail = { sentence: '', x_pct: 112.9, y_pct: 112.9, same_design: true, scenario_count: 4 };
+    expect(badDaySentence(tail)).toBe("The design that's best on an average day is also the best on the worst day, when car "
+      + 'travel time is 2.1× an average day.');
+    expect(badDaySentence({ ...tail, same_design: false, y_pct: 40 })).toContain('the design built for bad days loses 40.0%');
+  });
+});
+
+describe('change pins', () => {
+  const line = (name: string, car: boolean, len: number, coords: number[][]) => ({
+    type: 'Feature' as const, geometry: { type: 'LineString' as const, coordinates: coords },
+    properties: { ...(segment('0', null, name).properties as Segment), car, len },
+  });
+  const data = {
+    network: { type: 'FeatureCollection', features: [
+      line('George Street', true, 10, [[0, 0], [1, 1], [2, 2]]), line('George Street', true, 50, [[4, 4], [5, 5], [6, 6]]),
+      line('George Street', false, 99, [[9, 9], [9, 9]]),
+    ] },
+    crossings: { type: 'FeatureCollection', features: [
+      { type: 'Feature', geometry: { type: 'Point', coordinates: [7, 1] }, properties: { node: '42' } }] },
+    streets: { 'George Street': { bbox: [0, 0, 6, 6], segments: 3 } },
+    designs: { status: 'searching', candidates: [
+      { id: 'close-george-street', kind: 'close', street: 'George Street', reason: '', evidence: {} },
+      { id: 'signal-q', kind: 'signalise_crossing', node: '42', street: 'Q Street', reason: '', evidence: {} },
+      { id: 'signal-gone', kind: 'signalise_crossing', node: '99', street: 'Gone', reason: '', evidence: {} },
+    ] },
+  } as unknown as Parameters<typeof changePins>[0];
+
+  it('pins every change on its longest car segment or its crossing, and boxes the pins and streets', () => {
+    const { pins, bbox } = changePins(data);
+    expect(pins.features.map((f) => [f.properties.id, f.properties.label, f.geometry.coordinates])).toEqual([
+      ['close-george-street', 'George Street · closed', [5, 5]], ['signal-q', 'Q Street · new signals', [7, 1]],
+    ]);
+    expect(bbox).toEqual([0, 0, 7, 6]);
+  });
+
+  it('has no pins and no box without a menu', () => {
+    expect(changePins({ ...data, designs: null })).toEqual({ pins: { type: 'FeatureCollection', features: [] }, bbox: null });
+  });
+
+  it('says what each change does from the numbers it was picked on', () => {
+    expect(whatItDoes({ id: 's', kind: 'signalise_crossing', street: 'Q', reason: '',
+      evidence: { delay_s: 60, los: 'F', vehicle_flow_veh_h: 1647.5, signalised_delay_s: 37.4, signalised_los: 'E' } }))
+      .toBe('Adds traffic lights so people cross on their own green phase. The modelled wait to cross drops from 60 s '
+        + '(level of service F) to 37 s (E), beside 1,648 cars an hour.');
+    expect(whatItDoes({ id: 'c', kind: 'close', street: 'George Street', reason: '', evidence: { flow_veh_h: 966 } }))
+      .toContain('Stops through traffic on George Street. Today its busiest direction carries 966 cars an hour');
+    expect(whatItDoes({ id: 'b', kind: 'reallocate', street: 'Frederick Street', reason: '', evidence: { flow_veh_h: 1525.9, vc: 1.526 } }))
+      .toContain('1,526 cars an hour, at 153% of capacity');
+  });
+
+  it('shows signed whole numbers, with no sign on zero', () => {
+    expect([fmtSigned(93.4), fmtSigned(-1098.2), fmtSigned(-0.3)]).toEqual(['+93', '−1,098', '0']);
   });
 });

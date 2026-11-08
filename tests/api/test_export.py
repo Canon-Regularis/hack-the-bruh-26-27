@@ -380,7 +380,8 @@ def run_main(graph, tmp_path, monkeypatch):
     monkeypatch.setattr(export, "OUT_DIR", tmp_path / "out")
     monkeypatch.setattr(export, "load_graph", lambda: graph)
     for name in ("UE_PATH", "UE_META_PATH", "CROSSINGS_PATH", "DFT_PATH", "REVIEW_PATH", "CLAUSES_PATH",
-                 "SOURCES_DIR", "FIELD_PATH", "CONCERNS_PATH", "PREDICTIONS_DIR", "SPEEDS_NIGHT_PATH"):
+                 "SOURCES_DIR", "FIELD_PATH", "CONCERNS_PATH", "PREDICTIONS_DIR", "SPEEDS_NIGHT_PATH", "PERIODS_DIR",
+                 "DECIDE_DIR", "POLICY_CHECK_PATH"):
         monkeypatch.setattr(export, name, tmp_path / "missing" / name)
 
     def run():
@@ -482,3 +483,100 @@ def test_main_leaves_out_a_layer_whose_input_is_broken(run_main, tmp_path, monke
     assert "warning: left out the rules layer: JSONDecodeError" in capsys.readouterr().out
     assert not (tmp_path / "out" / "rules.json").exists()
     assert (tmp_path / "out" / "network.geojson").exists()
+
+
+def test_speed_periods_fall_back_to_signals_newest_output(tmp_path):
+    assert export.speed_periods(tmp_path / "none", tmp_path / "p", tmp_path / "n.csv") == [(tmp_path / "p", tmp_path / "n.csv")]
+    for name in ("2-night", "1-day"):
+        (tmp_path / "periods" / name).mkdir(parents=True)
+    assert export.speed_periods(tmp_path / "periods", tmp_path / "p", tmp_path / "n.csv") == [
+        (tmp_path / "periods" / "1-day", tmp_path / "periods" / "1-day" / "speeds.csv"),
+        (tmp_path / "periods" / "2-night", tmp_path / "periods" / "2-night" / "speeds.csv")]
+
+
+def test_main_writes_one_set_of_speed_files_per_period_default_first(run_main, predictions, night, tmp_path, monkeypatch):
+    import shutil
+    periods = tmp_path / "periods"
+    shutil.copytree(predictions, periods / "1-day")
+    (periods / "2-night").mkdir()
+    shutil.copy(predictions / "speed_predictions_20261108T010000Z.csv", periods / "2-night")
+    shutil.copy(night, periods / "2-night" / "speeds.csv")
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out" / "speeds_7.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(export, "PERIODS_DIR", periods)
+    speeds = run_main()["layers"]["speeds"]
+    assert speeds["file"] == "speed_predictions_20261108T030000Z.csv" and "city_edges" not in speeds
+    assert [p["file"] for p in speeds["periods"]] == [speeds["file"], "speed_predictions_20261108T010000Z.csv"]
+    assert speeds["periods"][1]["city_edges"] == 1  # its table has only the 21:00 bin
+    out = {p.name for p in (tmp_path / "out").iterdir()}
+    assert {"speeds.json", "speeds_1.json", "city_speeds_1.json", "city_network_1.geojson"} <= out
+    assert not {"speeds_7.json", "city_speeds.json"} & out
+
+
+MENU = [{"id": "signal-a", "kind": "signalise_crossing", "node": "9", "street": "A Street", "capacity_factor": 0.85,
+         "reason": "worst crossing", "evidence": {"delay_s": 60.0}},
+        {"id": "close-b", "kind": "close", "street": "B Street", "reason": "complaint street", "evidence": {}}]
+DIFF = {"closed_edge_ids": ["4", "5"], "capacity_factors": {}, "signalised_crossing_nodes": ["9"]}
+
+
+def _decide(folder, menu_ids=("signal-a", "close-b"), results=True):
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "candidates.json").write_text(json.dumps(MENU))
+    if not results:
+        return folder
+    designs = [{"mask": m, "candidates": c, "feasible": True, "mean_j_car": 100.0 + m, "mean_j_ped": 50.0 - m,
+                "j_risk": 120.0 + m, "per_scenario": {}} for m, c in [(0, []), (1, ["signal-a"]), (2, ["close-b"])]]
+    designs.append({"mask": 3, "candidates": ["signal-a", "close-b"], "feasible": False, "reason": "normal: cut off"})
+    (folder / "design_search.json").write_text(json.dumps({
+        "hour": "08:00-09:00 weekday", "alpha": 0.9, "candidates": list(menu_ids), "designs": designs,
+        "scenarios": [{"id": "normal", "probability": 1.0}], "fingerprint": {}}))
+    picks = {role: {"mask": 2, "candidates": ["close-b"], "mean_j_car": 102.0, "mean_j_ped": 48.0, "j_risk": 122.0,
+                    "diff": DIFF, "flows_file": f"designs/{role}.csv"} for role in ("car_best", "pedestrian_best", "knee")}
+    (folder / "best_trade_offs.json").write_text(json.dumps({
+        "objectives": ["mean_j_car", "mean_j_ped", "j_risk"], "hypervolume": 0.5,
+        "trade_offs": [designs[0], designs[2]], "picks": picks}))
+    (folder / "tail_risk_comparison.json").write_text(json.dumps({
+        "sentence": "Mean-optimal loses 5% in the worst scenario; the CVaR design loses 2%.", "x_pct": 5.0,
+        "y_pct": 2.0, "same_design": False, "scenario_count": 4, "tail": [], "alpha": 0.9}))
+    (folder / "emissions.json").write_text(json.dumps({"designs": {"knee": {"total_g_h": {"NOx": 1.0}}}}))
+    return folder
+
+
+def test_designs_layer_is_absent_before_there_is_a_menu(tmp_path):
+    assert export.designs_layer(tmp_path / "decide", tmp_path / "policy.json") is None
+
+
+def test_designs_layer_shows_the_menu_and_its_reasons_while_the_search_runs(tmp_path):
+    layer = export.designs_layer(_decide(tmp_path / "decide", results=False), tmp_path / "policy.json")
+    assert layer == {"status": "searching", "candidates": MENU}
+
+
+def test_designs_layer_leaves_out_results_for_a_different_menu(tmp_path):
+    folder = _decide(tmp_path / "decide", menu_ids=("signal-a", "close-c"))
+    assert export.designs_layer(folder, tmp_path / "policy.json")["status"] == "searching"
+
+
+def test_designs_layer_adds_scores_picks_policy_emissions_and_tail_risk(tmp_path):
+    policy = tmp_path / "policy.json"
+    policy.write_text(json.dumps({"designs": {
+        "knee": {"mask": 2, "summary": "Consistent with 3 verified clauses; 1 abstained for review",
+                 "clauses": [{"clause_id": "c1", "status": "satisfied"}]},
+        "car_best": {"mask": 1, "summary": "stale", "clauses": []}}}))
+    layer = export.designs_layer(_decide(tmp_path / "decide"), policy)
+    assert layer["status"] == "done" and layer["candidates"] == MENU and layer["trade_offs"] == [0, 2]
+    assert layer["designs"][1] == {"mask": 1, "candidates": ["signal-a"], "feasible": True,
+                                   "mean_j_car": 101.0, "mean_j_ped": 49.0, "j_risk": 121.0}
+    assert layer["designs"][3] == {"mask": 3, "candidates": ["signal-a", "close-b"], "feasible": False,
+                                   "reason": "normal: cut off"}
+    knee = layer["picks"]["knee"]
+    assert knee["diff"] == DIFF and knee["emissions"] == {"total_g_h": {"NOx": 1.0}}
+    assert knee["policy"]["summary"].startswith("Consistent with 3")
+    assert "policy" not in layer["picks"]["car_best"] and "flows_file" not in knee
+    assert layer["tail_risk"]["sentence"].startswith("Mean-optimal") and layer["tail_risk"]["y_pct"] == 2.0
+
+
+def test_main_writes_designs_and_lists_the_layer(run_main, tmp_path, monkeypatch):
+    monkeypatch.setattr(export, "DECIDE_DIR", _decide(tmp_path / "decide", results=False))
+    meta = run_main()
+    assert meta["layers"]["designs"]["status"] == "searching"
+    assert json.loads((tmp_path / "out" / "designs.json").read_text())["candidates"] == MENU

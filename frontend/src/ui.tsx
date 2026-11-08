@@ -98,3 +98,9 @@ export const fmtLength = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1)} k
 
 const clock = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
 export const fmtTime = (iso: string, plusMinutes = 0) => clock.format(new Date(Date.parse(iso) + plusMinutes * 60_000));
+const day = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' });
+export const fmtDay = (iso: string) => day.format(new Date(iso));
+const shortDay = new Intl.DateTimeFormat('en-GB', { weekday: 'short', timeZone: 'Europe/London' });
+/** A period's window as a short label, such as "Fri 08:00–09:00". The end is the last bin's start, so 15 minutes are added. */
+export const fmtPeriod = ([start, end]: [string, string]) =>
+  `${shortDay.format(new Date(start))} ${fmtTime(start)}–${fmtTime(end, 15)}`;

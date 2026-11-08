@@ -26,7 +26,10 @@ UE_PATH = ROOT / "data" / "demand" / "baseline_user_equilibrium.csv"
 UE_META_PATH = ROOT / "data" / "demand" / "baseline_user_equilibrium.json"
 CROSSINGS_PATH = ROOT / "data" / "demand" / "pedestrian_crossing_delay.csv"
 PREDICTIONS_DIR = ROOT / "data" / "derived" / "predictions"
+PERIODS_DIR = ROOT / "data" / "derived" / "periods"
 SPEEDS_NIGHT_PATH = ROOT / "data" / "derived" / "speeds_night.csv"
+DECIDE_DIR = ROOT / "data" / "decide"
+POLICY_CHECK_PATH = ROOT / "data" / "rules" / "policy_check.json"
 
 STUDY_BBOX = (-3.215, 55.942, -3.155, 55.958)  # west, south, east, north: Signal's matching box
 DECIMALS = 6
@@ -36,7 +39,8 @@ SPEED_COLUMNS = ("edge_id", "bin_start_utc", "speed_kmh", "kind")
 SPEED_KINDS = {"observed": "1", "predicted": "0"}
 LAYER_FILES = {"crossings": "crossings.geojson", "counts": "counts.geojson", "rules": "rules.json",
                "concerns": "concerns.json", "speeds": "speeds.json", "city": "city_speeds.json",
-               "city_network": "city_network.geojson", "city_traffic": "city_traffic.geojson"}
+               "city_network": "city_network.geojson", "city_traffic": "city_traffic.geojson",
+               "designs": "designs.json"}
 
 
 def in_bbox(lon: float, lat: float, bbox=STUDY_BBOX) -> bool:
@@ -382,6 +386,72 @@ def summary_meta(summary: dict) -> dict:
     return meta
 
 
+def speed_periods(periods_dir: Path, predictions_dir: Path, speeds_night_path: Path) -> list[tuple[Path, Path]]:
+    """Return (predictions folder, joined night) per bus period, the site's default first.
+
+    Each subfolder of periods_dir, in name order, is one period holding Signal's prediction table and
+    summary plus its joined speeds.csv. Without subfolders, the one period is Signal's newest output.
+    """
+    folders = sorted(p for p in periods_dir.iterdir() if p.is_dir()) if periods_dir.exists() else []
+    return [(f, f / "speeds.csv") for f in folders] or [(predictions_dir, speeds_night_path)]
+
+
+def _period_files(i: int) -> dict[str, str]:
+    suffix = f"_{i}" if i else ""
+    return {"speeds": f"speeds{suffix}.json", "city": f"city_speeds{suffix}.json",
+            "network": f"city_network{suffix}.geojson"}
+
+
+def _json(path: Path) -> dict | list | None:
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+
+DESIGN_SCORES = ("mean_j_car", "mean_j_ped", "j_risk", "j_voice", "j_voice_improvement")
+
+
+def designs_layer(decide_dir: Path = DECIDE_DIR, policy_path: Path = POLICY_CHECK_PATH) -> dict | None:
+    """Return #26's candidate menu with each pick's reason, or None before it exists.
+
+    Once #28 and #29 have run on that same menu, add every design's scores, the best trade-offs,
+    the picks with their diffs, #31's policy check and #40's emissions, and #30's tail-risk
+    sentence. Results for a different menu are left out, so the page never shows a stale run.
+    """
+    menu = _json(decide_dir / "candidates.json")
+    if menu is None:
+        return None
+    keys = ("id", "kind", "street", "node", "capacity_factor", "reason", "evidence")
+    out = {"status": "searching", "candidates": [{k: c[k] for k in keys if k in c} for c in menu]}
+    search, trade = _json(decide_dir / "design_search.json"), _json(decide_dir / "best_trade_offs.json")
+    if not (search and trade) or search["candidates"] != [c["id"] for c in menu]:
+        return out
+    policy = (_json(policy_path) or {}).get("designs", {})
+    emissions = (_json(decide_dir / "emissions.json") or {}).get("designs", {})
+
+    def scores(d: dict) -> dict:
+        return {k: d[k] for k in DESIGN_SCORES if k in d}
+
+    def pick(role: str, p: dict) -> dict:
+        checked = policy.get(role)
+        return {"mask": p["mask"], "candidates": p["candidates"], **scores(p), "diff": p["diff"],
+                **({"policy": {"summary": checked["summary"], "clauses": checked["clauses"]}}
+                   if checked and checked["mask"] == p["mask"] else {}),
+                **({"emissions": emissions[role]} if role in emissions else {})}
+
+    out.update(
+        status="done", hour=search["hour"], alpha=search["alpha"], scenarios=search["scenarios"],
+        objectives=trade["objectives"], hypervolume=trade["hypervolume"],
+        designs=[{"mask": d["mask"], "candidates": d["candidates"], "feasible": d["feasible"],
+                  **(scores(d) if d["feasible"] else {"reason": d["reason"]})} for d in search["designs"]],
+        trade_offs=[d["mask"] for d in trade["trade_offs"]],
+        picks={role: pick(role, p) for role, p in trade["picks"].items()},
+    )
+    tail = _json(decide_dir / "tail_risk_comparison.json")
+    if tail:
+        out["tail_risk"] = {k: tail[k] for k in ("sentence", "x_pct", "y_pct", "same_design", "scenario_count")
+                            if k in tail}
+    return out
+
+
 def _optional(name: str, build: Callable):
     """Build one optional layer; if its input can't be read, leave the layer out with a warning."""
     try:
@@ -412,9 +482,13 @@ def main() -> None:
     counts = _optional("counts", lambda: count_features(DFT_PATH, REVIEW_PATH)) or []
     rules = _optional("rules", lambda: rules_layer(graph, CLAUSES_PATH, SOURCES_DIR))
     concerns = _optional("concerns", lambda: concern_layer(graph, FIELD_PATH, CONCERNS_PATH))
-    speeds = _optional("speeds", lambda: speeds_layer(PREDICTIONS_DIR))
-    city = (_optional("city speeds", lambda: city_speed_layer(graph, speeds[0]["bins"], SPEEDS_NIGHT_PATH))
-            if speeds else None)
+    designs = _optional("designs", lambda: designs_layer(DECIDE_DIR, POLICY_CHECK_PATH))
+    periods = []
+    for folder, night in speed_periods(PERIODS_DIR, PREDICTIONS_DIR, SPEEDS_NIGHT_PATH):
+        speeds = _optional(f"speeds ({folder.name})", lambda: speeds_layer(folder))
+        if speeds:
+            periods.append((speeds, _optional(f"city speeds ({folder.name})",
+                                              lambda: city_speed_layer(graph, speeds[0]["bins"], night))))
     if rules:
         add_rules(network, rules[1], rules[2])
     if concerns:
@@ -450,23 +524,37 @@ def main() -> None:
         _write("concerns.json", concerns[2])
         layers["concerns"] = {"label": "Consultation concerns", "basis": "observed",
                               "note": f"From published consultation reports, as {concerns[1] or 'per-street counts'}"}
-    if speeds:
-        _write("speeds.json", speeds[0])
+    if designs:
+        _write("designs.json", designs)
+        layers["designs"] = {"label": "Design options", "basis": "modelled", "status": designs["status"],
+                             "note": "Scored on the modelled car network; the demand levels and the closure "
+                                     "in the scenarios are assumptions"}
+    period_meta = []
+    for i, (speeds, city) in enumerate(periods):
+        files = _period_files(i)
+        _write(files["speeds"], speeds[0])
+        period_meta.append(dict(speeds[1]))
+        if city and city[1]["edges"]:
+            _write(files["network"], _collection(city[0]))
+            _write(files["city"], city[1])
+            period_meta[-1]["city_edges"] = len(city[1]["edges"])
+    if periods:
         layers["speeds"] = {"label": "Bus-observed speed", "basis": "predicted",
                             "note": "Speed of buses, not of all traffic. Solid where a bus was seen in that "
-                                    "quarter-hour; dashed where the model predicts it", **speeds[1]}
+                                    "quarter-hour; dashed where the model predicts it", **period_meta[0]}
+        if len(periods) > 1:
+            layers["speeds"]["periods"] = period_meta
     kept = {LAYER_FILES[layer] for layer in layers if layer in LAYER_FILES}
+    kept |= {name for i, m in enumerate(period_meta) for kind, name in _period_files(i).items()
+             if kind == "speeds" or "city_edges" in m}
     city_traffic = _optional("city traffic", lambda: city_traffic_features(graph, traffic[0])) if traffic else None
     if city_traffic:
         _write("city_traffic.geojson", _collection(city_traffic))
         layers["traffic"]["city_edges"] = len(city_traffic)
         kept.add(LAYER_FILES["city_traffic"])
-    if speeds and city and city[1]["edges"]:
-        _write("city_network.geojson", _collection(city[0]))
-        _write("city_speeds.json", city[1])
-        layers["speeds"]["city_edges"] = len(city[1]["edges"])
-        kept |= {LAYER_FILES["city"], LAYER_FILES["city_network"]}
-    for name in set(LAYER_FILES.values()) - kept:
+    stale = {p.name for pattern in ("speeds_*.json", "city_speeds_*.json", "city_network_*.geojson")
+             for p in OUT_DIR.glob(pattern)}
+    for name in (set(LAYER_FILES.values()) | stale) - kept:
         (OUT_DIR / name).unlink(missing_ok=True)
     _write("meta.json", {"bbox": STUDY_BBOX, "layers": layers})
     print(f"{len(network)} segments, {len(crossings)} crossings, {len(counts)} count points -> {OUT_DIR}")
