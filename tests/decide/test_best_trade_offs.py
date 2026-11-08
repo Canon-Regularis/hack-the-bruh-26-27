@@ -42,10 +42,15 @@ def test_normalise_scales_each_objective_to_0_1_and_flat_ones_to_0():
 def test_trade_offs_skip_infeasible_and_dominated_designs():
     trade_offs, volume = bt.trade_offs_and_hypervolume([E, INFEASIBLE, C, A, DOMINATED, D, B])
     assert [d["mask"] for d in trade_offs] == [5, 3, 1, 4, 2]
-    feasible = [E, C, A, DOMINATED, D, B]
-    normalised = bt.normalise([[d[name] for name in bt.OBJECTIVES] for d in feasible])
-    on_best = [normalised[i] for i, d in enumerate(feasible) if d is not DOMINATED]
-    assert volume == pytest.approx(box_union_volume(on_best, [bt.REFERENCE] * 3))
+    normalised = bt.normalise([[d[name] for name in bt.OBJECTIVES] for d in trade_offs])
+    assert volume == pytest.approx(box_union_volume(normalised, [bt.REFERENCE] * 3))
+
+
+@pytest.mark.parametrize("dominated", [design(6, 11, 9.5, 11), design(7, 100, 900, 100), design(8, 1e3, 1e6, 1e3)])
+def test_dominated_designs_do_not_change_the_hypervolume(dominated):
+    without = bt.trade_offs_and_hypervolume([A, B, C, D, E])[1]
+    assert bt.trade_offs_and_hypervolume([A, B, C, D, E, dominated])[1] == without
+    assert without < bt.REFERENCE ** 3
 
 
 def test_pick_designs_uses_the_cut_projection_for_the_knee():
@@ -59,6 +64,7 @@ def test_pick_designs_breaks_ties_by_the_lower_mask():
 
 
 def test_design_diff_lists_edge_ids_and_combined_factors():
+    car_edges = {str(e) for e in range(12)}
     candidates = [
         {"id": "close-north", "kind": "close", "edges": frozenset({"0", "1", "2", "3"}), "capacity_factor": None,
          "node": None},
@@ -69,13 +75,26 @@ def test_design_diff_lists_edge_ids_and_combined_factors():
         {"id": "signal-9", "kind": "signalise_crossing", "edges": frozenset({"5", "10"}), "capacity_factor": 0.8,
          "node": 9},
     ]
-    assert bt.design_diff({"mask": 0b1111}, candidates) == {
+    assert bt.design_diff({"mask": 0b1111}, candidates, car_edges) == {
         "closed_edge_ids": ["0", "1", "2", "3"],
         "capacity_factors": {"4": 0.5, "5": pytest.approx(0.4), "10": pytest.approx(0.4)},
         "signalised_crossing_nodes": [1, 9],
     }
-    assert bt.design_diff({"mask": 0}, candidates) == {"closed_edge_ids": [], "capacity_factors": {},
-                                                       "signalised_crossing_nodes": []}
+    assert bt.design_diff({"mask": 0}, candidates, car_edges) == {"closed_edge_ids": [], "capacity_factors": {},
+                                                                  "signalised_crossing_nodes": []}
+
+
+def test_design_diff_never_shows_pedestrian_sections_as_changed():
+    candidates = [
+        {"id": "close-rose", "kind": "close", "edges": frozenset({"0", "1", "2", "3", "4", "5"}),
+         "capacity_factor": None, "node": None},
+        {"id": "bus-lane-rose", "kind": "reallocate", "edges": frozenset({"0", "1", "2", "3", "4", "5"}),
+         "capacity_factor": 0.5, "node": None},
+    ]
+    car_edges = {"0", "1", "4", "5"}
+    assert bt.design_diff({"mask": 0b01}, candidates, car_edges)["closed_edge_ids"] == ["0", "1", "4", "5"]
+    assert bt.design_diff({"mask": 0b10}, candidates, car_edges)["capacity_factors"] == {
+        "0": 0.5, "1": 0.5, "4": 0.5, "5": 0.5}
 
 
 @pytest.fixture(scope="module")
@@ -88,7 +107,7 @@ def search(context):
     results = {(mask, s["id"]): ds.evaluate(context, mask, s)
                for mask in range(1 << len(context["candidates"])) for s in context["scenarios"]}
     return {"hour": context["hour"], "alpha": ds.ALPHA, "candidates": [c["id"] for c in context["candidates"]],
-            "designs": ds.summarise(context, results)}
+            "fingerprint": json.loads(json.dumps(ds.fingerprint(context))), "designs": ds.summarise(context, results)}
 
 
 def run_main(context, search, tmp_path, monkeypatch):
@@ -113,13 +132,14 @@ def test_main_writes_picks_and_their_baseline_flows(context, search, tmp_path, m
         expected = [{key: str(value) for key, value in row.items()} for row in ue_rows(net, result)]
         with (tmp_path / "designs" / f"{role}.csv").open() as f:
             assert list(csv.DictReader(f)) == expected
-        assert pick["diff"] == bt.design_diff(pick, context["candidates"])
+        assert pick["diff"] == bt.design_diff(pick, context["candidates"], set(context["link_to_edge"]))
     assert capsys.readouterr().out.startswith(f"{len(out['trade_offs'])} best trade-offs, hypervolume ")
 
 
-def test_main_refuses_a_search_run_on_other_candidates(context, search, tmp_path, monkeypatch):
-    with pytest.raises(ValueError, match="candidates have changed"):
-        run_main(context, {**search, "candidates": ["something-else", "bus-lane-south"]}, tmp_path, monkeypatch)
+def test_main_refuses_a_search_run_on_other_inputs(context, search, tmp_path, monkeypatch):
+    edited = [{**c, "capacity_factor": 0.7} if c["kind"] == "reallocate" else c for c in context["candidates"]]
+    with pytest.raises(ValueError, match="have changed since"):
+        run_main({**context, "candidates": edited}, search, tmp_path, monkeypatch)
 
 
 def test_main_refuses_a_search_with_no_feasible_design(context, search, tmp_path, monkeypatch):

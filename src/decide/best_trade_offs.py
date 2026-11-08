@@ -15,7 +15,7 @@ from pathlib import Path
 from engine.orchid import multi_objective as mo
 from src.decide.baseline_user_equilibrium import UE_FIELDS, ue_rows
 from src.decide.design_search import RESULTS_PATH as SEARCH_PATH
-from src.decide.design_search import chosen, load_context, solve
+from src.decide.design_search import chosen, fingerprint, load_context, solve
 from src.decide.interventions import CLOSE, SIGNALISE
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,7 +28,7 @@ BASELINE = {"multiplier": 1.0, "closed_edge_ids": []}
 
 
 def normalise(F: list[list[float]]) -> list[list[float]]:
-    """Scale each objective so the best feasible design is 0 and the worst is 1.
+    """Scale each objective so the best row is 0 and the worst is 1.
 
     An objective that is the same for every design becomes 0.
     """
@@ -40,13 +40,16 @@ def normalise(F: list[list[float]]) -> list[list[float]]:
 
 def trade_offs_and_hypervolume(designs: list[dict]) -> tuple[list[dict], float]:
     """Return the feasible designs that are best trade-offs over OBJECTIVES (the Pareto
-    front), and the hypervolume of their normalised objectives against REFERENCE on every axis.
+    front), and their hypervolume against REFERENCE on every axis.
+
+    The objectives are normalised over the best trade-offs themselves, from their ideal (0)
+    to their nadir (1), so REFERENCE sits just past the nadir and dominated designs can't
+    stretch the scale.
     """
     feasible = [d for d in designs if d["feasible"]]
     F = [[d[name] for name in OBJECTIVES] for d in feasible]
     best = sorted(mo.find_pareto_front(F))
-    normalised = normalise(F)
-    volume = mo.hypervolume([normalised[i] for i in best], [REFERENCE] * len(OBJECTIVES))
+    volume = mo.hypervolume(normalise([F[i] for i in best]), [REFERENCE] * len(OBJECTIVES))
     return [feasible[i] for i in best], volume
 
 
@@ -64,18 +67,20 @@ def pick_designs(trade_offs: list[dict]) -> dict[str, dict]:
     }
 
 
-def design_diff(design: dict, candidates: list[dict]) -> dict:
+def design_diff(design: dict, candidates: list[dict], car_edges: set[str]) -> dict:
     """Return what a design changes, as string edge ids: closed edges, edges whose capacity
     changes (with the combined factor), and signalised crossing nodes.
 
-    Capacity changes on closed edges are left out, as apply_design leaves them out.
+    Only car edges count, and capacity changes on closed edges are left out, as apply_design
+    does; a street's pedestrian sections are never shown as closed.
     """
     picked = chosen(candidates, design["mask"])
-    closed = set().union(*(c["edges"] for c in picked if c["kind"] == CLOSE))
+    closed = car_edges & set().union(*(c["edges"] for c in picked if c["kind"] == CLOSE))
+    open_car_edges = car_edges - closed
     factors = {}
     for c in picked:
         if c["kind"] != CLOSE and c["capacity_factor"] is not None:
-            for eid in c["edges"] - closed:
+            for eid in c["edges"] & open_car_edges:
                 factors[eid] = factors.get(eid, 1.0) * c["capacity_factor"]
     return {
         "closed_edge_ids": sorted(closed, key=int),
@@ -95,8 +100,10 @@ def main() -> None:
     picks = pick_designs(trade_offs)
 
     context = load_context()
-    if [c["id"] for c in context["candidates"]] != search["candidates"]:
-        raise ValueError(f"the candidates have changed since {SEARCH_PATH} was written; rerun the design search")
+    if json.loads(json.dumps(fingerprint(context))) != search["fingerprint"]:
+        raise ValueError(f"the candidates, scenarios, OD matrix, network or settings have changed since "
+                         f"{SEARCH_PATH} was written; rerun the design search")
+    car_edges = set(context["link_to_edge"])
     DESIGNS_DIR.mkdir(parents=True, exist_ok=True)
     rows_by_mask = {}
     for mask in {d["mask"] for d in picks.values()}:
@@ -120,7 +127,7 @@ def main() -> None:
         "trade_offs": [{"mask": d["mask"], "candidates": d["candidates"], **{name: d[name] for name in OBJECTIVES}}
                        for d in trade_offs],
         "picks": {role: {"mask": d["mask"], "candidates": d["candidates"], **{name: d[name] for name in OBJECTIVES},
-                         "diff": design_diff(d, context["candidates"]), "flows_file": f"designs/{role}.csv"}
+                         "diff": design_diff(d, context["candidates"], car_edges), "flows_file": f"designs/{role}.csv"}
                   for role, d in picks.items()},
     }, indent=1), encoding="utf-8")
     print(f"{len(trade_offs)} best trade-offs, hypervolume {volume:.3f} (normalised, ref {REFERENCE})")
