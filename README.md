@@ -1,30 +1,65 @@
+<div align="center">
+
 # Edinburgh's Invisible Streets
 
-HackTheBurgh XIII, Team Civilian$: Yakshdevsing (Adish) Boodhun, Darryl Liu Liong Wah, Matthew Li and Matthew Miezaniec.
+**The rules, the complaints and the traffic of Edinburgh's Old Town, put on one map and used to choose better street designs.**
 
-Edinburgh's Old Town streets have three layers you can't see on a map: the rules (traffic orders buried in PDFs), the complaints (scattered across council consultations) and the actual traffic (most streets have no counter). We collect all three, fill in the missing traffic using live bus positions, and use the lot to pick street designs that follow the real rules, respond to real complaints and still hold up on bad days.
+HackTheBurgh XIII · Team Civilian$
+
+![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
+![React 19](https://img.shields.io/badge/react-19-149ECA?logo=react&logoColor=white)
+![MapLibre](https://img.shields.io/badge/map-MapLibre-396CB2)
+![LightGBM](https://img.shields.io/badge/model-LightGBM-2E7D32)
+
+</div>
+
+---
+
+Edinburgh's Old Town streets have three layers you can't see on a map: the **rules** (traffic orders buried in PDFs), the **complaints** (scattered across council consultations) and the **actual traffic** (most streets have no counter). We collect all three, fill in the missing traffic using live bus positions, and use the lot to pick street designs that follow the real rules, respond to real complaints and still hold up on bad days.
+
+<p align="center">
+  <img src="data/out/ping_plot.png" width="640" alt="Live bus pings collected across Edinburgh">
+  <br>
+  <sub>Bus pings from our live collector, plotted on the first evening.</sub>
+</p>
+
+## Contents
+
+- [What it does](#what-it-does)
+- [Current numbers](#current-numbers)
+- [Quick start](#quick-start)
+- [How it works: the maths](#how-it-works-the-maths)
+- [Repo layout](#repo-layout)
+- [ORCHID library](#orchid-library-vendored)
+- [Team](#team)
 
 ## What it does
 
-- **Traffic.** We poll live bus positions from bustimes.org, match each ping to the street it was on and work out bus-observed speeds. A LightGBM model fills in the streets no bus covered and puts an error bar on each prediction.
-- **Rules.** We copy clauses from Edinburgh's traffic orders by hand, check every quote against the source text and compare each rule with OpenStreetMap. If the parser can't read a clause, it flags it for review instead of guessing.
-- **Complaints.** We spread consultation comments onto the streets they mention and test where they cluster more than you'd expect by chance.
-- **Designs.** We try every legal combination of a few street changes (closures, bus lanes, signalised crossings) under several demand scenarios, model how drivers and pedestrians respond, and keep the designs nothing else beats. Four of them go on the map.
-- **Site.** A React + MapLibre map with four views: Traffic, Rules, Complaints and Designs.
+| | Data | What we do with it |
+| --- | --- | --- |
+| **Traffic** | Live bus positions from [bustimes.org](https://bustimes.org/) | Match each ping to its street, work out bus-observed speeds, then predict the streets no bus covered, with an error bar on each |
+| **Rules** | [Edinburgh traffic orders](https://www.edinburgh.gov.uk/trafficorders) | Check every quote against the order, compare each rule with OpenStreetMap, and flag clauses the parser can't read instead of guessing |
+| **Complaints** | [Council consultations](https://consultationhub.edinburgh.gov.uk/) | Spread comments onto the streets they mention and find where they cluster more than chance would explain |
+| **Designs** | All of the above | Try every legal mix of closures, bus lanes and signalised crossings under several demand scenarios, keep the designs nothing else beats, and show four on the map |
 
-### Current numbers
+The site (React + MapLibre) has one view for each of these.
 
-From the data the site ships with (`frontend/public/data/`):
+## Current numbers
 
-- In the 08:00–08:45 window, 66% of street-time in the study area had no bus reading (80% overnight), so the model predicts it. Its mean error is 6.9 km/h against 7.8 km/h for the best simple baseline, and its ±14.1 km/h interval covered 90% of held-out readings.
-- Of the 25 traffic-order rules we could apply, 10 are missing or wrong on OpenStreetMap. Another 46 clauses are flagged for review.
-- Every chosen design is consistent with 16 verified clauses and in tension with 9, with 46 left for review.
+| | |
+| --- | --- |
+| Street-time with no bus reading | **66%** in the 08:00–08:45 window, 80% overnight |
+| Speed model error | **6.9 km/h**, against 7.8 km/h for the best simple baseline |
+| Prediction interval | **±14.1 km/h**, covering 90% of held-out readings |
+| Rules missing or wrong on OpenStreetMap | **10 of 25** |
+| Clauses flagged for review | **46** |
+| Chosen designs against the rules | consistent with 16 verified clauses, in tension with 9 |
 
-Speeds are bus-observed, not general traffic speeds, and nothing here has been legally approved.
+<sub>From the data the site ships with, in `frontend/public/data/`. Speeds are bus-observed, not general traffic speeds, and nothing here has been legally approved.</sub>
 
 ## Quick start
 
-### Look at the site
+### 1. See the site
 
 The site's data is committed, so it runs straight from a clone. You need Node.js.
 
@@ -34,7 +69,7 @@ npm install
 npm run dev
 ```
 
-### Set up Python
+### 2. Set up Python
 
 Python 3.12 is what we tested on (3.10 or newer works).
 
@@ -44,9 +79,10 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r data/requirements.txt scipy networkx
 ```
 
-On macOS, LightGBM also needs OpenMP: `brew install libomp`. Don't `pip install orchid`, it's an unrelated package. The ORCHID code we use is already in `vendor/orchid/`.
+> [!NOTE]
+> On macOS, LightGBM also needs OpenMP: `brew install libomp`. Don't `pip install orchid`, it's an unrelated package. The ORCHID code we use is already in `vendor/orchid/`.
 
-### Get the raw data
+### 3. Get the raw data
 
 None of this is in git.
 
@@ -55,10 +91,15 @@ None of this is in git.
 | `data/raw/osm.json` | The team's OpenStreetMap download. Get it from Adish rather than downloading it again, or the edge ids won't match. |
 | `data/raw/dft_aadf.csv` | [DfT traffic counts](https://roadtraffic.dft.gov.uk/local-authorities/29) for the City of Edinburgh |
 | `data/raw/concerns.csv` | Built by hand from published consultation material: theme, lat, lon, street, count, severity |
-| `data/rules/clauses.json` and `data/raw/sources/<document_id>.txt` | Traffic-order clauses copied by hand, and the text of each order |
-| `data/raw/pings.csv` | Written by the bus collector (see below) |
+| `data/rules/clauses.json`<br>`data/raw/sources/<document_id>.txt` | Traffic-order clauses copied by hand, and the text of each order |
+| `data/raw/pings.csv` | Written by the bus collector (step 4) |
 
-### Run the Engine pipeline
+### 4. Run the pipelines
+
+<details>
+<summary><b>Engine pipeline</b>: rules, complaints, demand and the design search</summary>
+
+<br>
 
 From the repo root, in this order:
 
@@ -84,7 +125,12 @@ python -m src.decide.emissions               # display only
 
 The design search saves its progress as it goes, so you can stop and restart it. To split it across machines, use `--shard K/N`, then join the parts with `--merge N`.
 
-### Run the Signal pipeline (bus speeds)
+</details>
+
+<details>
+<summary><b>Signal pipeline</b>: live bus positions to street speeds</summary>
+
+<br>
 
 ```bash
 cd data && python collector.py collect --interval 30    # leave it running; writes raw/pings.csv
@@ -95,17 +141,12 @@ PYTHONPATH=.:data python scripts/run_signal.py --speeds data/derived/speeds_0800
 
 `run_signal.py` joins the speed windows, scores the model against both baselines, predicts the streets with no bus data and writes a summary to `data/derived/`. On Windows, use `;` instead of `:` in `PYTHONPATH`.
 
-### Update the site's data
+</details>
+
+### 5. Update the site and run the tests
 
 ```bash
-python -m src.api.export     # writes frontend/public/data/
-```
-
-Only the street graph is required. Any layer whose inputs are missing is left out.
-
-### Run the tests
-
-```bash
+python -m src.api.export     # writes frontend/public/data/ (only the street graph is required)
 pytest                       # everything under tests/
 cd frontend && npm test
 ```
@@ -113,8 +154,6 @@ cd frontend && npm test
 The speed model tests need LightGBM installed.
 
 ## How it works: the maths
-
-A short version of each step is below. The full version, with every formula and what each symbol means, is in [docs/MATHEMATICS.md](docs/MATHEMATICS.md).
 
 ```mermaid
 flowchart LR
@@ -125,49 +164,69 @@ flowchart LR
     search["Design search"] --> picks["Pareto front + J_voice<br/>four designs"]
 ```
 
-**Map matching.** A Hidden Markov Model solved with the Viterbi algorithm (Newson–Krumm). Each ping scores nearby streets by how close it is (Gaussian error, σ = 4.07 m) and by whether the jump from the previous street makes sense. Speed on a street is total metres driven divided by total seconds.
+| Step | Method | In one line |
+| --- | --- | --- |
+| Map matching | Hidden Markov Model + Viterbi | Picks the street each ping was really on; speed is metres ÷ seconds |
+| Speed prediction | LightGBM + conformal intervals | Fills in streets with no bus, tested on streets and hours it never saw |
+| Travel demand | Gravity model + GLS | Morning-peak trips between 20 zones, fitted to the DfT counts |
+| Traffic assignment | User equilibrium, Algorithm B | Where every driver goes once a street changes |
+| Crossing delay | Adams' delay, signal timing | How long pedestrians wait, given the traffic |
+| Complaints | Gaussian kernel, binomial test, Benjamini–Hochberg | Where complaints cluster more than chance |
+| Design search | Exhaustive search, CVaR | Every legal design under every scenario, including the worst days |
+| Picking designs | Pareto front, hypervolume, knee | Keeps the designs nothing beats and picks four |
+| Rule checking | Quote check, closed grammar | Turns traffic orders into rules, and never guesses |
 
-**Speed prediction.** Gradient-boosted trees (LightGBM), tested on whole streets and later hours the model never saw, and compared with two simple baselines. Each prediction gets a split conformal interval $`\hat{y} \pm q`$, where $`q`$ is the 90% quantile of the model's out-of-fold errors.
+### Key formulas
 
-**Travel demand.** A gravity model gives a first guess at morning-peak trips between 20 zones, then generalised least squares adjusts it to match the DfT counts:
-
-```math
-T^{0}_{ij} = k \, O_i \, D_j \, e^{-\beta c_{ij}}, \qquad \beta = \frac{1}{\bar{c}}
-```
-
-**Traffic assignment.** User equilibrium, where no driver can save time by changing route, solved with Algorithm B. Streets slow down as they fill up, following the BPR curve:
+Congestion on each street (BPR curve):
 
 ```math
 t_e(f_e) = t^{0}_e \left[ 1 + 0.15 \left( \frac{f_e}{c_e} \right)^{4} \right]
 ```
 
-We check the solver against the Braess paradox (83 → 92 per driver) before trusting it.
+First guess at trips between zones (gravity model), before fitting to the counts:
 
-**Crossing delay.** Signalised crossings wait $`(C - g)^2 / 2C`$, zebras a fixed 3 s, and unmarked crossings use Adams' gap-acceptance delay, capped at 60 s:
+```math
+T^{0}_{ij} = k \, O_i \, D_j \, e^{-\beta c_{ij}}, \qquad \beta = \frac{1}{\bar{c}}
+```
+
+Pedestrian wait at an unmarked crossing (Adams):
 
 ```math
 d = \frac{e^{q t_c} - q t_c - 1}{q}
 ```
 
-**Complaints.** Each complaint is spread onto nearby streets with a Gaussian kernel (σ = 50 m). Hotspots come from a binomial test of comments against street length, with a Benjamini–Hochberg correction at a 5% false-discovery rate.
-
-**Design search.** Every legal design, $`2^k`$ of them with $`k \le 8`$, is tested under a reduced set of demand scenarios. Alongside the average we look at the worst 10% of scenarios (CVaR):
+Bad-day risk: the average of the worst 10% of scenarios (CVaR):
 
 ```math
 \text{CVaR}_{0.9} = \text{VaR}_{0.9} + \frac{1}{0.1} \sum_{s} p_s \max\left(0, \; J_s - \text{VaR}_{0.9}\right)
 ```
 
-**Picking designs.** We keep the exact Pareto front over driving time, crossing delay and bad-day risk, plus J_voice when complaints have real locations, then measure it with the hypervolume and find the knee. J_voice weights how much each design changes conditions on each street by how much people complained about it:
+How much a design changes conditions where people complained (J_voice):
 
 ```math
 J_{\text{voice}}(x) = \sum_{j} \sum_{e} s_e^{j} \, m_e^{j}(x)
 ```
 
-**Rule checking.** Every quote is checked letter by letter against the traffic order. Rules are parsed with a closed grammar, so a clause it can't fully read is flagged for review instead of guessed.
+Every formula, with what each symbol means, is in **[docs/MATHEMATICS.md](docs/MATHEMATICS.md)**. Most steps use the vendored ORCHID library below; the speed model, hotspots and J_voice are built on LightGBM, numpy, scipy and networkx.
 
-Most of these steps use the vendored ORCHID library below. The speed model, hotspots and J_voice are built on LightGBM, numpy, scipy and networkx.
+## Repo layout
+
+```text
+src/        Engine pipeline: graph, rules, concerns, decide, and the export for the site
+data/       Signal pipeline: bus collector, map matching, speeds, features, speed model
+frontend/   the site (React, Vite, MapLibre)
+engine/     the one import point for ORCHID
+vendor/     the vendored ORCHID library (don't edit by hand)
+scripts/    runners for the Signal pipeline, plus sync_orchid.py
+tests/      pytest suite
+docs/       the plan, the issue list and the maths
+```
 
 ## ORCHID library (vendored)
+
+<details>
+<summary>Which modules we vendor, which are held back, and the gotchas</summary>
 
 The maths comes from ORCHID: 14 modules copied byte for byte into `vendor/orchid/` from ORCHID
 commit `81022c7`, which is pinned in `scripts/sync_orchid.py`. They use only the standard
@@ -237,3 +296,9 @@ copy.
   ourselves.
 - `street_network`'s node-graph routers ignore banned turns. Use `edge_expanded_graph` /
   `turn_aware_shortest_path` for turn bans from traffic orders.
+
+</details>
+
+## Team
+
+Yakshdevsing (Adish) Boodhun · Darryl Liu Liong Wah · Matthew Li · Matthew Miezaniec
